@@ -6,6 +6,8 @@ from app.agent.contracts import (
     AgentStepStatus,
     FinalAction,
     InvalidAction,
+    MessageRole,
+    MessageType,
     RuntimeDecision,
     RuntimeDecisionType,
     RuntimeEvent,
@@ -43,6 +45,16 @@ class StatusEnumTests(unittest.TestCase):
         self.assertEqual(
             {status.value for status in ToolCallStatus},
             {"PENDING", "RUNNING", "COMPLETED", "ERROR", "REJECTED", "TIMEOUT"},
+        )
+
+    def test_message_enum_values_match_database_contract(self) -> None:
+        self.assertEqual(
+            {role.value for role in MessageRole},
+            {"ASSISTANT", "TOOL"},
+        )
+        self.assertEqual(
+            {message_type.value for message_type in MessageType},
+            {"TEXT", "TOOL_RESULT", "FINAL"},
         )
 
 

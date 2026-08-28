@@ -7,6 +7,7 @@ from uuid import uuid4
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.agent.contracts import ToolCallStatus
 from app.db.base import Base
 
 if TYPE_CHECKING:
@@ -24,6 +25,11 @@ class ToolCall(Base):
     __tablename__ = "tool_calls"
     __table_args__ = (
         UniqueConstraint("step_id", "call_index", name="uq_tool_calls_step_call_index"),
+        UniqueConstraint(
+            "assistant_message_id",
+            "provider_call_id",
+            name="uq_tool_calls_message_provider_call_id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(
@@ -44,6 +50,11 @@ class ToolCall(Base):
         index=True,
         comment="发起该 Tool Call 的 Assistant Message；一条 Assistant Message 可发起多个 Tool Call。",
     )
+    provider_call_id: Mapped[str] = mapped_column(
+        String(255),
+        index=True,
+        comment="模型供应商返回的 Tool Call ID，用于构造对应的 Tool Result 消息。",
+    )
     call_index: Mapped[int] = mapped_column(
         Integer,
         comment="该 Tool Call 在同一 Assistant ToolCalls 列表中的位置，用于稳定恢复原始顺序。",
@@ -58,7 +69,7 @@ class ToolCall(Base):
     )
     status: Mapped[str] = mapped_column(
         String(32),
-        default="PENDING",
+        default=ToolCallStatus.PENDING.value,
         comment="工具运行状态：PENDING、RUNNING、COMPLETED、ERROR、REJECTED 或 TIMEOUT。",
     )
     exit_code: Mapped[int | None] = mapped_column(
@@ -76,6 +87,10 @@ class ToolCall(Base):
     result: Mapped[str | None] = mapped_column(
         Text,
         comment="Tool 执行层面的原始或标准化结果；发送给 LLM 的观察内容记录在 messages.content。",
+    )
+    result_metadata: Mapped[dict | None] = mapped_column(
+        JSON,
+        comment="统一 ToolResult 携带的结构化 metadata，包括命令退出信息或文件结果信息。",
     )
     error: Mapped[str | None] = mapped_column(
         Text,

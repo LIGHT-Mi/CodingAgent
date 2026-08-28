@@ -52,7 +52,12 @@ class Message(Base):
     )
     tool_call_id: Mapped[str | None] = mapped_column(
         String(36),
-        ForeignKey("tool_calls.id", ondelete="SET NULL"),
+        ForeignKey(
+            "tool_calls.id",
+            name="messages_tool_call_id_fkey",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
         unique=True,
         index=True,
         comment="TOOL_RESULT Message 指向的 Tool Call；role=TOOL 且 message_type=TOOL_RESULT 时必须填写。",

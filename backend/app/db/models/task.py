@@ -7,6 +7,7 @@ from uuid import uuid4
 from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.agent.contracts import TaskStatus
 from app.db.base import Base
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ class Task(Base):
     )
     status: Mapped[str] = mapped_column(
         String(32),
-        default="PENDING",
+        default=TaskStatus.PENDING.value,
         comment="Task 生命周期：PENDING、RUNNING、COMPLETED、FAILED、CANCELLED、TERMINATED。",
     )
     final_answer: Mapped[str | None] = mapped_column(

@@ -7,6 +7,7 @@ from uuid import uuid4
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.agent.contracts import AgentStepStatus
 from app.db.base import Base
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ class AgentStep(Base):
     )
     status: Mapped[str] = mapped_column(
         String(32),
-        default="RUNNING",
+        default=AgentStepStatus.RUNNING.value,
         comment="Step 生命周期：RUNNING、COMPLETED、FAILED 或 INTERRUPTED。",
     )
     error: Mapped[str | None] = mapped_column(

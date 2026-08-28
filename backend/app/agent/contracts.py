@@ -55,6 +55,21 @@ class ToolResultStatus(str, Enum):
     TIMEOUT = "TIMEOUT"
 
 
+class MessageRole(str, Enum):
+    """进入任务对话历史的消息来源。"""
+
+    ASSISTANT = "ASSISTANT"
+    TOOL = "TOOL"
+
+
+class MessageType(str, Enum):
+    """任务对话历史中的业务消息类型。"""
+
+    TEXT = "TEXT"
+    TOOL_RESULT = "TOOL_RESULT"
+    FINAL = "FINAL"
+
+
 class RuntimeEventType(str, Enum):
     """需要交给 Runtime Policy 判断的运行事件类型。"""
 
