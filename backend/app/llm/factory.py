@@ -1,0 +1,26 @@
+"""根据应用配置装配 DeepSeek 模型网关。"""
+
+from __future__ import annotations
+
+from app.llm.deepseek_client import DeepSeekClient, DeepSeekConfigurationError
+from app.llm.gateway import LLMGateway
+
+
+def create_configured_llm_gateway() -> LLMGateway:
+    """从 ``backend/.env`` 或进程环境变量创建可调用的模型网关。"""
+
+    from app.core.config import settings
+
+    secret = settings.DEEPSEEK_API_KEY
+    if secret is None:
+        raise DeepSeekConfigurationError(
+            "DEEPSEEK_API_KEY is missing; set it in backend/.env or the process "
+            "environment"
+        )
+    return LLMGateway(
+        DeepSeekClient(
+            api_key=secret.get_secret_value(),
+            base_url=settings.DEEPSEEK_BASE_URL,
+            timeout_seconds=settings.DEEPSEEK_TIMEOUT_SECONDS,
+        )
+    )

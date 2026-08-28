@@ -17,6 +17,9 @@ build/
 dist/
 *.egg-info/
 
+# Repository-local tests
+/tests/
+
 # Environment variables and local secrets
 .env
 .env.*
