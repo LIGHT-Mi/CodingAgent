@@ -55,11 +55,15 @@ class Task(Base):
     )
     final_answer: Mapped[str | None] = mapped_column(
         Text,
-        comment="Task 正常完成时模型给出的最终回答。",
+        comment="Task 对外最终结果；通常与 FINAL Assistant Message 内容相同。",
     )
     error: Mapped[str | None] = mapped_column(
         Text,
-        comment="Task 级终止错误；可恢复的工具观察结果记录在 tool_calls 中。",
+        comment="Task 因不可恢复错误失败时的错误信息；可恢复工具观察结果记录在 tool_calls 中。",
+    )
+    termination_reason: Mapped[str | None] = mapped_column(
+        Text,
+        comment="Task 被取消或被控制规则终止时的非错误原因，例如用户取消、达到最大步数或检测到循环。",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -19,8 +19,12 @@ def new_id() -> str:
     return str(uuid4())
 
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class AgentStep(Base):
-    """Task 中 Agent Loop 的一轮执行记录。"""
+    """Task 中 Agent Loop 的一轮自主执行记录。"""
 
     __tablename__ = "agent_steps"
     __table_args__ = (
@@ -41,23 +45,20 @@ class AgentStep(Base):
     )
     step_number: Mapped[int] = mapped_column(
         Integer,
-        comment="Agent Loop 轮次编号，用于排序和最大步数检查。",
+        comment="该 Step 在所属 Task 中的轮次编号，用于排序和最大步数检查。",
     )
     status: Mapped[str] = mapped_column(
         String(32),
         default="RUNNING",
-        comment="Step 生命周期：RUNNING、COMPLETED 或 FAILED。",
-    )
-    model_response: Mapped[str | None] = mapped_column(
-        Text,
-        comment="本轮模型原始响应或标准化响应，用于运行追踪和调试。",
+        comment="Step 生命周期：RUNNING、COMPLETED、FAILED 或 INTERRUPTED。",
     )
     error: Mapped[str | None] = mapped_column(
         Text,
-        comment="Step 级运行时错误，区别于工具错误和 Task 级终止错误。",
+        comment="Step 本身无法完成时的运行时错误；普通工具失败应记录为 Tool Result 或 ToolCall error。",
     )
-    started_at: Mapped[datetime | None] = mapped_column(
+    started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
+        default=utc_now,
         comment="该轮 Agent Loop 开始时间。",
     )
     finished_at: Mapped[datetime | None] = mapped_column(
@@ -66,7 +67,10 @@ class AgentStep(Base):
     )
 
     task: Mapped[Task] = relationship(back_populates="agent_steps")
-    messages: Mapped[list[Message]] = relationship(back_populates="step")
+    messages: Mapped[list[Message]] = relationship(
+        back_populates="step",
+        passive_deletes=True,
+    )
     tool_calls: Mapped[list[ToolCall]] = relationship(
         back_populates="step",
         cascade="all, delete-orphan",

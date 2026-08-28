@@ -24,7 +24,7 @@ def utc_now() -> datetime:
 
 
 class Message(Base):
-    """构成 Task 对话历史的消息，用于为 LLM 构造上下文。"""
+    """Agent / LLM 对话历史中的消息，用于为 LLM 构造上下文。"""
 
     __tablename__ = "messages"
     __table_args__ = (
@@ -43,18 +43,19 @@ class Message(Base):
         index=True,
         comment="该 Message 所属的 Task。",
     )
-    step_id: Mapped[str | None] = mapped_column(
+    step_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("agent_steps.id", ondelete="SET NULL"),
+        ForeignKey("agent_steps.id", ondelete="CASCADE"),
         index=True,
-        comment="产生该 Message 的 Agent Step；初始用户输入可以为空。",
+        nullable=False,
+        comment="产生或包含该 Message 的 Agent Step；所有对话历史消息都必须归属到某个 Agent Step。",
     )
     tool_call_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("tool_calls.id", ondelete="SET NULL"),
         unique=True,
         index=True,
-        comment="该 Message 对应的 Tool Call，主要用于 Tool Result Message。",
+        comment="TOOL_RESULT Message 指向的 Tool Call；role=TOOL 且 message_type=TOOL_RESULT 时必须填写。",
     )
     sequence: Mapped[int] = mapped_column(
         Integer,
@@ -62,13 +63,13 @@ class Message(Base):
     )
     role: Mapped[str] = mapped_column(
         String(32),
-        comment="Message 产生者：USER、ASSISTANT 或 TOOL。",
+        comment="Message 产生者：ASSISTANT 或 TOOL；用户创建 Task 的初始 Prompt 只存 tasks.original_prompt。",
     )
     message_type: Mapped[str] = mapped_column(
         String(32),
-        comment="业务消息类型：USER_INPUT、TEXT、TOOL_CALL、TOOL_RESULT 或 FINAL。",
+        comment="业务消息类型：TEXT、TOOL_RESULT 或 FINAL；Tool Call 本身记录在 tool_calls 表。",
     )
-    content: Mapped[str | None] = mapped_column(
+    content: Mapped[str] = mapped_column(
         Text,
         comment="进入 Task 对话历史的文本内容。",
     )
@@ -79,8 +80,12 @@ class Message(Base):
     )
 
     task: Mapped[Task] = relationship(back_populates="messages")
-    step: Mapped[AgentStep | None] = relationship(back_populates="messages")
+    step: Mapped[AgentStep] = relationship(back_populates="messages")
     tool_call: Mapped[ToolCall | None] = relationship(
         back_populates="result_message",
         foreign_keys=[tool_call_id],
+    )
+    requested_tool_calls: Mapped[list[ToolCall]] = relationship(
+        back_populates="assistant_message",
+        foreign_keys="ToolCall.assistant_message_id",
     )
