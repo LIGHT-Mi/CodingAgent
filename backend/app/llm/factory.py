@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from app.llm.contracts import ModelConfig
 from app.llm.deepseek_client import DeepSeekClient, DeepSeekConfigurationError
 from app.llm.gateway import LLMGateway
+from app.llm.tool_schema_registry import ToolSchemaRegistry
 
 
 def create_configured_llm_gateway() -> LLMGateway:
@@ -22,5 +24,7 @@ def create_configured_llm_gateway() -> LLMGateway:
             api_key=secret.get_secret_value(),
             base_url=settings.DEEPSEEK_BASE_URL,
             timeout_seconds=settings.DEEPSEEK_TIMEOUT_SECONDS,
-        )
+        ),
+        ModelConfig(model=settings.DEEPSEEK_MODEL),
+        ToolSchemaRegistry(),
     )

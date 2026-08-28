@@ -147,13 +147,17 @@ class DeepSeekClient:
             raise DeepSeekRequestError(
                 "DeepSeek accepts at most 128 tools in one request"
             )
+        if request.stream:
+            raise DeepSeekRequestError(
+                "DeepSeekClient only supports non-streaming responses"
+            )
 
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": [
                 _serialize_message(message) for message in request.messages
             ],
-            "stream": False,
+            "stream": request.stream,
         }
         if request.tool_schemas:
             payload["tools"] = [

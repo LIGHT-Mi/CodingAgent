@@ -2,6 +2,7 @@
 
 from app.llm.action_parser import AgentActionParser
 from app.llm.contracts import (
+    LLMContext,
     LLMMessage,
     LLMMessageRole,
     LLMRequest,
@@ -9,6 +10,7 @@ from app.llm.contracts import (
     LLMToolChoice,
     LLMToolSchema,
     LLMUsage,
+    ModelConfig,
     NormalizedLLMResponse,
     NormalizedToolCall,
 )
@@ -27,6 +29,7 @@ from app.llm.deepseek_client import (
 )
 from app.llm.factory import create_configured_llm_gateway
 from app.llm.gateway import LLMGateway, LLMGatewayResult
+from app.llm.request_builder import LLMRequestBuilder
 from app.llm.tool_schema_registry import (
     DuplicateToolSchemaError,
     InvalidToolSchemaError,
@@ -37,6 +40,7 @@ from app.llm.tool_schema_registry import (
 
 __all__ = [
     "AgentActionParser",
+    "LLMContext",
     "LLMMessage",
     "LLMMessageRole",
     "LLMRequest",
@@ -44,6 +48,7 @@ __all__ = [
     "LLMToolChoice",
     "LLMToolSchema",
     "LLMUsage",
+    "ModelConfig",
     "NormalizedLLMResponse",
     "NormalizedToolCall",
     "DeepSeekResponseAdapter",
@@ -59,6 +64,7 @@ __all__ = [
     "DeepSeekTimeoutError",
     "LLMGateway",
     "LLMGatewayResult",
+    "LLMRequestBuilder",
     "create_configured_llm_gateway",
     "DuplicateToolSchemaError",
     "InvalidToolSchemaError",

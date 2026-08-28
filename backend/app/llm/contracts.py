@@ -101,6 +101,34 @@ class LLMMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class LLMContext:
+    """上下文管理与模型调用之间传递的最小模型上下文。
+
+    当前阶段只允许固定的 System Prompt 和 Task 原始 User Prompt。历史消息、
+    Interaction Block、Tool Result、预算控制、滑动窗口和摘要将在完整上下文管理
+    阶段加入。
+    """
+
+    messages: tuple[LLMMessage, ...]
+
+    def __post_init__(self) -> None:
+        messages = tuple(self.messages)
+        if len(messages) != 2:
+            raise ValueError(
+                "minimal LLMContext must contain exactly two messages"
+            )
+        if any(not isinstance(message, LLMMessage) for message in messages):
+            raise TypeError("messages must contain only LLMMessage values")
+        expected_roles = (LLMMessageRole.SYSTEM, LLMMessageRole.USER)
+        actual_roles = tuple(message.role for message in messages)
+        if actual_roles != expected_roles:
+            raise ValueError(
+                "minimal LLMContext messages must be ordered as SYSTEM, USER"
+            )
+        object.__setattr__(self, "messages", messages)
+
+
+@dataclass(frozen=True, slots=True)
 class LLMToolSchema:
     """可随 LLM 请求发送的单个函数工具定义。"""
 
@@ -119,6 +147,20 @@ class LLMToolSchema:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelConfig:
+    """一次模型调用所需的供应商无关生成配置。"""
+
+    model: str
+    temperature: float | None = None
+    max_output_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        _require_non_blank(self.model, "model")
+        _validate_temperature(self.temperature)
+        _validate_max_output_tokens(self.max_output_tokens)
+
+
+@dataclass(frozen=True, slots=True)
 class LLMRequest:
     """模型客户端接收的供应商无关请求。"""
 
@@ -128,6 +170,7 @@ class LLMRequest:
     tool_choice: LLMToolChoice = LLMToolChoice.AUTO
     temperature: float | None = None
     max_output_tokens: int | None = None
+    stream: bool = False
     metadata: Metadata = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -153,23 +196,10 @@ class LLMRequest:
         if self.tool_choice is LLMToolChoice.REQUIRED and not schemas:
             raise ValueError("REQUIRED tool_choice needs at least one tool schema")
 
-        if self.temperature is not None:
-            if isinstance(self.temperature, bool) or not isinstance(
-                self.temperature,
-                (int, float),
-            ):
-                raise TypeError("temperature must be a number or None")
-            if self.temperature < 0:
-                raise ValueError("temperature must be greater than or equal to zero")
-
-        if self.max_output_tokens is not None:
-            if isinstance(self.max_output_tokens, bool) or not isinstance(
-                self.max_output_tokens,
-                int,
-            ):
-                raise TypeError("max_output_tokens must be an integer or None")
-            if self.max_output_tokens <= 0:
-                raise ValueError("max_output_tokens must be greater than zero")
+        _validate_temperature(self.temperature)
+        _validate_max_output_tokens(self.max_output_tokens)
+        if not isinstance(self.stream, bool):
+            raise TypeError("stream must be a boolean")
 
         object.__setattr__(
             self,
@@ -282,6 +312,24 @@ def _require_non_negative_integer(value: int, field_name: str) -> None:
         raise TypeError(f"{field_name} must be an integer")
     if value < 0:
         raise ValueError(f"{field_name} must be greater than or equal to zero")
+
+
+def _validate_temperature(value: float | None) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError("temperature must be a number or None")
+    if value < 0:
+        raise ValueError("temperature must be greater than or equal to zero")
+
+
+def _validate_max_output_tokens(value: int | None) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("max_output_tokens must be an integer or None")
+    if value <= 0:
+        raise ValueError("max_output_tokens must be greater than zero")
 
 
 def _copy_mapping(value: Mapping[str, Any], field_name: str) -> dict[str, Any]:

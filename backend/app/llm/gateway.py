@@ -10,7 +10,7 @@ from app.agent.contracts import (
     RuntimeEventType,
 )
 from app.llm.action_parser import AgentActionParser
-from app.llm.contracts import LLMRequest
+from app.llm.contracts import LLMContext, ModelConfig
 from app.llm.deepseek_adapter import DeepSeekResponseAdapter
 from app.llm.deepseek_client import (
     DeepSeekAPIError,
@@ -21,6 +21,8 @@ from app.llm.deepseek_client import (
     DeepSeekResponseError,
     DeepSeekTimeoutError,
 )
+from app.llm.request_builder import LLMRequestBuilder
+from app.llm.tool_schema_registry import ToolSchemaRegistry
 
 
 LLMGatewayResult: TypeAlias = AgentAction | RuntimeEvent
@@ -32,18 +34,48 @@ class LLMGateway:
     def __init__(
         self,
         client: DeepSeekClient,
+        model_config: ModelConfig,
+        tool_schema_registry: ToolSchemaRegistry,
         *,
+        request_builder: LLMRequestBuilder | None = None,
         response_adapter: DeepSeekResponseAdapter | None = None,
         action_parser: AgentActionParser | None = None,
     ) -> None:
         if not isinstance(client, DeepSeekClient):
             raise TypeError("client must be a DeepSeekClient")
+        if not isinstance(model_config, ModelConfig):
+            raise TypeError("model_config must be a ModelConfig")
+        if not isinstance(
+            tool_schema_registry,
+            ToolSchemaRegistry,
+        ):
+            raise TypeError("tool_schema_registry must be a ToolSchemaRegistry")
+        if request_builder is not None and not isinstance(
+            request_builder,
+            LLMRequestBuilder,
+        ):
+            raise TypeError(
+                "request_builder must be an LLMRequestBuilder or None"
+            )
         self.client = client
+        self.model_config = model_config
+        self.tool_schema_registry = tool_schema_registry
+        self.request_builder = (
+            LLMRequestBuilder()
+            if request_builder is None
+            else request_builder
+        )
         self.response_adapter = response_adapter or DeepSeekResponseAdapter()
         self.action_parser = action_parser or AgentActionParser()
 
-    def invoke(self, request: LLMRequest) -> LLMGatewayResult:
-        """完成一次模型调用，不执行工具，也不读写数据库。"""
+    def invoke(self, context: LLMContext) -> LLMGatewayResult:
+        """根据 Context 构造请求并完成模型调用，不读写数据库。"""
+
+        request = self.request_builder.build(
+            context,
+            self.model_config,
+            self.tool_schema_registry.get_all(),
+        )
 
         try:
             raw_response = self.client.create_chat_completion(request)
