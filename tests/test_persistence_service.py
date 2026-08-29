@@ -284,6 +284,64 @@ class PersistenceServiceTests(unittest.TestCase):
             )
             self.assertEqual(persisted_call.status, status.value)
 
+    def test_fail_open_tool_calls_closes_running_and_pending_calls(self) -> None:
+        task, step = self._create_running_task_with_step()
+        _, tool_calls = self.persistence.save_tool_calls_action(
+            task.id,
+            step.id,
+            ToolCallsAction(
+                tool_calls=(
+                    ToolCallRequest(
+                        tool_call_id="provider-running",
+                        tool_name="read_file",
+                        arguments={"path": "main.py"},
+                        call_index=0,
+                    ),
+                    ToolCallRequest(
+                        tool_call_id="provider-pending",
+                        tool_name="list_files",
+                        arguments={"path": "."},
+                        call_index=1,
+                    ),
+                )
+            ),
+        )
+        self.persistence.start_tool_call(tool_calls[0].id)
+
+        failed_calls = self.persistence.fail_open_tool_calls(
+            step.id,
+            "Agent runtime failed with RuntimeError: tool crashed",
+        )
+
+        self.assertEqual(
+            [call.provider_call_id for call in failed_calls],
+            ["provider-running", "provider-pending"],
+        )
+        persisted_calls = self.persistence.load_tool_calls(task.id)
+        self.assertTrue(
+            all(call.status == ToolCallStatus.ERROR.value for call in persisted_calls)
+        )
+        self.assertIsNotNone(persisted_calls[0].started_at)
+        self.assertIsNone(persisted_calls[1].started_at)
+        self.assertTrue(all(call.finished_at is not None for call in persisted_calls))
+        self.assertTrue(
+            all(call.result_metadata == {"fatal": True} for call in persisted_calls)
+        )
+        messages = self.persistence.load_messages(task.id)
+        self.assertEqual([message.sequence for message in messages], [0, 1, 2])
+        self.assertEqual(
+            [message.message_type for message in messages],
+            [
+                MessageType.TEXT.value,
+                MessageType.TOOL_RESULT.value,
+                MessageType.TOOL_RESULT.value,
+            ],
+        )
+        self.assertEqual(
+            [message.tool_call_id for message in messages[1:]],
+            [persisted_calls[0].id, persisted_calls[1].id],
+        )
+
     def test_reject_invalid_lifecycle_transitions(self) -> None:
         coding_session = self.persistence.create_session()
         task = self.persistence.create_task(

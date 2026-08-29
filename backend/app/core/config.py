@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     DEEPSEEK_MODEL: str = "deepseek-v4-flash"
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_TIMEOUT_SECONDS: float = Field(default=60.0, gt=0)
+    MAX_AGENT_STEPS: int = Field(default=8, gt=0)
     ALLOWED_WORKSPACE_ROOT: Path = BACKEND_DIR.parent
 
     model_config = SettingsConfigDict(

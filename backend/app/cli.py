@@ -20,6 +20,11 @@ from app.db.persistence import PersistenceService
 from app.db.session import SessionLocal
 from app.llm.factory import create_configured_llm_gateway
 from app.llm.gateway import LLMGateway
+from app.tools import (
+    ToolRouter,
+    WorkspacePathGuard,
+    create_read_only_file_tool_registry,
+)
 
 
 SessionFactory = Callable[[], Session]
@@ -69,6 +74,11 @@ def main(
                 persistence,
                 context_manager,
                 llm_gateway,
+                ToolRouter(
+                    create_read_only_file_tool_registry(),
+                    WorkspacePathGuard(),
+                ),
+                max_agent_steps=settings.MAX_AGENT_STEPS,
             )
             task_service = TaskService(
                 persistence,

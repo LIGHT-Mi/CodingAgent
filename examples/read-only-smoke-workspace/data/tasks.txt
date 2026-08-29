@@ -1,0 +1,4 @@
+[x] define contracts
+[x] add read-only tools
+[ ] add write tools
+

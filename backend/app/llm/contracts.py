@@ -102,29 +102,35 @@ class LLMMessage:
 
 @dataclass(frozen=True, slots=True)
 class LLMContext:
-    """上下文管理与模型调用之间传递的最小模型上下文。
+    """上下文管理与模型调用之间传递的模型上下文。
 
-    当前阶段只允许固定的 System Prompt 和 Task 原始 User Prompt。历史消息、
-    Interaction Block、Tool Result、预算控制、滑动窗口和摘要将在完整上下文管理
-    阶段加入。
+    第 4 步固定以 System Prompt、Task 原始 User Prompt 开头，后面可以包含完整
+    Assistant / Tool 历史。预算控制、Tool Result 截断、滑动窗口、Interaction
+    Block 删除、摘要和 ContextOverflow 留到第 7 步。
     """
 
     messages: tuple[LLMMessage, ...]
 
     def __post_init__(self) -> None:
         messages = tuple(self.messages)
-        if len(messages) != 2:
-            raise ValueError(
-                "minimal LLMContext must contain exactly two messages"
-            )
+        if len(messages) < 2:
+            raise ValueError("LLMContext must contain at least two messages")
         if any(not isinstance(message, LLMMessage) for message in messages):
             raise TypeError("messages must contain only LLMMessage values")
         expected_roles = (LLMMessageRole.SYSTEM, LLMMessageRole.USER)
-        actual_roles = tuple(message.role for message in messages)
+        actual_roles = tuple(message.role for message in messages[:2])
         if actual_roles != expected_roles:
             raise ValueError(
-                "minimal LLMContext messages must be ordered as SYSTEM, USER"
+                "LLMContext must start with messages ordered as SYSTEM, USER"
             )
+        if any(
+            message.role in {LLMMessageRole.SYSTEM, LLMMessageRole.USER}
+            for message in messages[2:]
+        ):
+            raise ValueError(
+                "LLMContext history can contain only ASSISTANT and TOOL messages"
+            )
+        _validate_tool_call_history(messages[2:])
         object.__setattr__(self, "messages", messages)
 
 
@@ -293,6 +299,38 @@ def _validate_unique_tool_calls(calls: tuple[LLMToolCall, ...]) -> None:
     call_indexes = [call.call_index for call in calls]
     if len(call_indexes) != len(set(call_indexes)):
         raise ValueError("call_index must be unique within one assistant message")
+
+
+def _validate_tool_call_history(messages: tuple[LLMMessage, ...]) -> None:
+    requested_call_ids: set[str] = set()
+    answered_call_ids: set[str] = set()
+
+    for message in messages:
+        if message.role is LLMMessageRole.ASSISTANT:
+            for call in message.tool_calls:
+                if call.tool_call_id in requested_call_ids:
+                    raise ValueError(
+                        "tool_call_id must be unique across LLMContext history"
+                    )
+                requested_call_ids.add(call.tool_call_id)
+            continue
+
+        assert message.role is LLMMessageRole.TOOL
+        assert message.tool_call_id is not None
+        if message.tool_call_id not in requested_call_ids:
+            raise ValueError(
+                "a TOOL message must reference an earlier assistant tool call"
+            )
+        if message.tool_call_id in answered_call_ids:
+            raise ValueError(
+                "an assistant tool call can have only one TOOL result message"
+            )
+        answered_call_ids.add(message.tool_call_id)
+
+    if requested_call_ids != answered_call_ids:
+        raise ValueError(
+            "every assistant tool call must have exactly one TOOL result message"
+        )
 
 
 def _require_non_blank(value: str, field_name: str) -> None:
