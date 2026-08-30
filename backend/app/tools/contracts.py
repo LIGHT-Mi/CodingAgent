@@ -1,14 +1,14 @@
-"""只读文件工具使用的纯 Python 语义契约。
+"""文件工具使用的纯 Python 语义契约。
 
 本模块只固定工具参数、文本结果格式和资源保护上限，不访问文件系统，也不依赖
-数据库或 Agent Runtime。路径边界校验、参数路由和真实文件执行由后续模块负责。
+数据库或 Agent Runtime。路径边界校验、参数路由和真实文件执行由其他工具模块负责。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable
+from typing import Iterable, TypeAlias
 
 
 DEFAULT_TOOL_PATH = "."
@@ -29,24 +29,31 @@ def _require_positive_integer(value: int, field_name: str) -> None:
 
 
 @dataclass(frozen=True, slots=True)
-class ReadOnlyFileToolLimits:
-    """第 4 步使用的固定资源保护上限。
+class FileToolLimits:
+    """文件工具使用的固定资源保护上限。
 
-    这些限制用于阻止一次本地工具调用读取过多数据，不是第 7 步的模型上下文
-    字符预算或 Tool Result 截断策略。
+    这些限制用于阻止一次本地工具调用读取过多数据，并限制修改摘要中的 diff
+    展示长度；它们不是第 7 步的模型上下文预算与完整 Tool Result 管理策略。
     """
 
     max_file_bytes: int = 1024 * 1024
     max_search_files: int = 1000
     max_search_matches: int = 200
+    max_diff_lines: int = 200
+    max_diff_characters: int = 12_000
 
     def __post_init__(self) -> None:
         _require_positive_integer(self.max_file_bytes, "max_file_bytes")
         _require_positive_integer(self.max_search_files, "max_search_files")
         _require_positive_integer(self.max_search_matches, "max_search_matches")
+        _require_positive_integer(self.max_diff_lines, "max_diff_lines")
+        _require_positive_integer(
+            self.max_diff_characters,
+            "max_diff_characters",
+        )
 
 
-DEFAULT_READ_ONLY_FILE_TOOL_LIMITS = ReadOnlyFileToolLimits()
+DEFAULT_FILE_TOOL_LIMITS = FileToolLimits()
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +86,56 @@ class SearchFilesArguments:
     def __post_init__(self) -> None:
         _require_non_blank(self.query, "query")
         _require_non_blank(self.path, "path")
+
+
+@dataclass(frozen=True, slots=True)
+class CreateFileArguments:
+    """``create_file`` 参数；content 可以为空，但 path 必须显式提供。"""
+
+    path: str
+    content: str
+
+    def __post_init__(self) -> None:
+        _require_non_blank(self.path, "path")
+        _require_string(self.content, "content")
+
+
+@dataclass(frozen=True, slots=True)
+class WriteFileArguments:
+    """``write_file`` 参数；整体覆盖已有 UTF-8 文本文件。"""
+
+    path: str
+    content: str
+
+    def __post_init__(self) -> None:
+        _require_non_blank(self.path, "path")
+        _require_string(self.content, "content")
+
+
+@dataclass(frozen=True, slots=True)
+class EditFileArguments:
+    """``edit_file`` 参数；只允许唯一、非空的 old_text 精确替换。"""
+
+    path: str
+    old_text: str
+    new_text: str
+
+    def __post_init__(self) -> None:
+        _require_non_blank(self.path, "path")
+        _require_non_blank(self.old_text, "old_text")
+        _require_string(self.new_text, "new_text")
+        if self.old_text == self.new_text:
+            raise ValueError("old_text and new_text must be different")
+
+
+FileToolArguments: TypeAlias = (
+    ListFilesArguments
+    | ReadFileArguments
+    | SearchFilesArguments
+    | CreateFileArguments
+    | WriteFileArguments
+    | EditFileArguments
+)
 
 
 class FileEntryType(str, Enum):
@@ -185,3 +242,8 @@ def decode_utf8_text(data: bytes) -> str:
         return data.decode("utf-8", errors="strict")
     except UnicodeDecodeError as exc:
         raise UnsupportedTextFileError("file content is not valid UTF-8") from exc
+
+
+def _require_string(value: str, field_name: str) -> None:
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a string")

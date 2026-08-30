@@ -23,7 +23,7 @@ from app.llm.gateway import LLMGateway
 from app.tools import (
     ToolRouter,
     WorkspacePathGuard,
-    create_read_only_file_tool_registry,
+    create_file_tool_registry,
 )
 
 
@@ -75,7 +75,7 @@ def main(
                 context_manager,
                 llm_gateway,
                 ToolRouter(
-                    create_read_only_file_tool_registry(),
+                    create_file_tool_registry(),
                     WorkspacePathGuard(),
                 ),
                 max_agent_steps=settings.MAX_AGENT_STEPS,

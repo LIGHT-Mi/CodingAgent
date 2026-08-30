@@ -1,4 +1,4 @@
-"""执行只读工具调用并持续调用模型的基础 Agent Loop。"""
+"""执行文件工具调用并持续调用模型的基础 Agent Loop。"""
 
 from __future__ import annotations
 

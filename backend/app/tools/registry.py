@@ -5,14 +5,17 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from app.tools.contracts import (
-    DEFAULT_READ_ONLY_FILE_TOOL_LIMITS,
-    ReadOnlyFileToolLimits,
+    DEFAULT_FILE_TOOL_LIMITS,
+    FileToolLimits,
 )
 from app.tools.file_tools import (
+    CreateFileTool,
+    EditFileTool,
+    FileTool,
     ListFilesTool,
     ReadFileTool,
-    ReadOnlyFileTool,
     SearchFilesTool,
+    WriteFileTool,
 )
 
 
@@ -31,25 +34,25 @@ class FileToolNotFoundError(FileToolRegistryError):
 class FileToolRegistry:
     """按工具名映射本地执行器，与模型 ToolSchemaRegistry 相互独立。"""
 
-    def __init__(self, tools: Iterable[ReadOnlyFileTool] = ()) -> None:
-        self._tools: dict[str, ReadOnlyFileTool] = {}
+    def __init__(self, tools: Iterable[FileTool] = ()) -> None:
+        self._tools: dict[str, FileTool] = {}
         for tool in tools:
             self.register(tool)
 
-    def register(self, tool: ReadOnlyFileTool) -> None:
-        if not isinstance(tool, ReadOnlyFileTool):
-            raise TypeError("tool must be a ReadOnlyFileTool")
+    def register(self, tool: FileTool) -> None:
+        if not isinstance(tool, FileTool):
+            raise TypeError("tool must be a FileTool")
         if tool.name in self._tools:
             raise DuplicateFileToolError(
                 f"file tool {tool.name!r} is already registered"
             )
         self._tools[tool.name] = tool
 
-    def get(self, tool_name: str) -> ReadOnlyFileTool | None:
+    def get(self, tool_name: str) -> FileTool | None:
         _require_tool_name(tool_name)
         return self._tools.get(tool_name)
 
-    def require(self, tool_name: str) -> ReadOnlyFileTool:
+    def require(self, tool_name: str) -> FileTool:
         tool = self.get(tool_name)
         if tool is None:
             raise FileToolNotFoundError(
@@ -57,7 +60,7 @@ class FileToolRegistry:
             )
         return tool
 
-    def get_all(self) -> tuple[ReadOnlyFileTool, ...]:
+    def get_all(self) -> tuple[FileTool, ...]:
         return tuple(self._tools.values())
 
     def names(self) -> tuple[str, ...]:
@@ -70,17 +73,20 @@ class FileToolRegistry:
         return len(self._tools)
 
 
-def create_read_only_file_tool_registry(
+def create_file_tool_registry(
     *,
-    limits: ReadOnlyFileToolLimits = DEFAULT_READ_ONLY_FILE_TOOL_LIMITS,
+    limits: FileToolLimits = DEFAULT_FILE_TOOL_LIMITS,
 ) -> FileToolRegistry:
-    """使用共享资源上限装配三个只读文件工具执行器。"""
+    """使用共享资源上限装配当前应用入口启用的六个文件工具。"""
 
     return FileToolRegistry(
         (
             ListFilesTool(limits),
             ReadFileTool(limits),
             SearchFilesTool(limits),
+            CreateFileTool(limits),
+            WriteFileTool(limits),
+            EditFileTool(limits),
         )
     )
 

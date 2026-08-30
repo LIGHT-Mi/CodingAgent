@@ -17,11 +17,15 @@ from app.llm.contracts import (
 )
 
 
-READ_ONLY_SYSTEM_PROMPT = (
-    "你是一个编程助手。当前可以使用 list_files、read_file 和 search_files "
-    "三个只读工具。涉及 Workspace 文件信息时，必须通过工具取得真实目录和文件"
-    "内容，不得虚构读取结果。信息充分后返回最终答案。当前不能修改、创建或删除"
-    "文件，也不能执行命令。"
+FILE_TOOL_SYSTEM_PROMPT = (
+    "你是一个编程助手。当前可以使用 list_files、read_file、search_files、"
+    "create_file、write_file 和 edit_file。涉及 Workspace 文件信息时，必须通过"
+    "工具取得真实目录和文件内容，不得虚构读取结果。修改已有文件前必须先用 "
+    "read_file 读取真实内容；精确修改优先使用 edit_file，新文件使用 "
+    "create_file；需要整体覆盖已有文件时，必须显式使用 write_file。工具成功后"
+    "必须再次使用 read_file 验证实际内容；工具返回错误时，根据 Observation "
+    "修正后续调用。当前仍不能执行命令或删除文件。信息充分且修改已经验证后再返回"
+    "最终答案，不得声称未验证的修改已经成功。"
 )
 
 
@@ -59,7 +63,7 @@ class ContextManager:
             messages=(
                 LLMMessage(
                     role=LLMMessageRole.SYSTEM,
-                    content=READ_ONLY_SYSTEM_PROMPT,
+                    content=FILE_TOOL_SYSTEM_PROMPT,
                 ),
                 LLMMessage(
                     role=LLMMessageRole.USER,
@@ -176,7 +180,7 @@ def _restore_tool_call(tool_call: ToolCall) -> LLMToolCall:
     try:
         arguments_json = json.dumps(
             tool_call.arguments,
-            ensure_ascii=False,
+            ensure_ascii=True,
             separators=(",", ":"),
             sort_keys=True,
         )

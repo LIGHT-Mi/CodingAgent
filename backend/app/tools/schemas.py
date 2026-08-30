@@ -1,4 +1,4 @@
-"""三个只读文件工具的模型可见 Schema。
+"""当前六个文件工具的模型可见 Schema。
 
 Schema 在模型网关工厂中注册；本模块只负责定义，不连接模型或执行本地工具。
 """
@@ -80,8 +80,91 @@ SEARCH_FILES_SCHEMA = LLMToolSchema(
 )
 
 
-READ_ONLY_FILE_TOOL_SCHEMAS = (
+CREATE_FILE_SCHEMA = LLMToolSchema(
+    name="create_file",
+    description=(
+        "在 Workspace 内创建一个新的 UTF-8 文本文件。目标必须不存在，工具不会"
+        "覆盖已有文件；父目录必须已经存在。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Workspace 内要创建的新文件路径。",
+            },
+            "content": {
+                "type": "string",
+                "description": "要写入新文件的完整 UTF-8 文本，可以为空。",
+            },
+        },
+        "required": ["path", "content"],
+        "additionalProperties": False,
+    },
+)
+
+
+WRITE_FILE_SCHEMA = LLMToolSchema(
+    name="write_file",
+    description=(
+        "使用给定 UTF-8 文本整体覆盖 Workspace 内的一个已有文本文件。调用前应先"
+        "读取文件；这不是局部编辑。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Workspace 内要整体覆盖的已有文件路径。",
+            },
+            "content": {
+                "type": "string",
+                "description": "覆盖后文件应具有的完整 UTF-8 文本，可以为空。",
+            },
+        },
+        "required": ["path", "content"],
+        "additionalProperties": False,
+    },
+)
+
+
+EDIT_FILE_SCHEMA = LLMToolSchema(
+    name="edit_file",
+    description=(
+        "在 Workspace 内已有 UTF-8 文本文件中执行一次精确文本替换。old_text 必须"
+        "恰好出现一次；找不到或出现多次都会返回错误且不修改文件。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Workspace 内要精确修改的已有文件路径。",
+            },
+            "old_text": {
+                "type": "string",
+                "minLength": 1,
+                "description": "文件中必须恰好出现一次的原始文本。",
+            },
+            "new_text": {
+                "type": "string",
+                "description": "用于替换 old_text 的新文本，可以为空。",
+            },
+        },
+        "required": ["path", "old_text", "new_text"],
+        "additionalProperties": False,
+    },
+)
+
+
+FILE_TOOL_SCHEMAS = (
     LIST_FILES_SCHEMA,
     READ_FILE_SCHEMA,
     SEARCH_FILES_SCHEMA,
+    CREATE_FILE_SCHEMA,
+    WRITE_FILE_SCHEMA,
+    EDIT_FILE_SCHEMA,
 )

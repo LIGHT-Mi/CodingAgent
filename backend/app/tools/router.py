@@ -7,11 +7,14 @@ from pathlib import Path
 
 from app.agent.contracts import ToolCallRequest, ToolResult, ToolResultStatus
 from app.tools.contracts import (
+    CreateFileArguments,
+    EditFileArguments,
+    FileToolArguments,
     ListFilesArguments,
     ReadFileArguments,
     SearchFilesArguments,
+    WriteFileArguments,
 )
-from app.tools.file_tools import FileToolArguments
 from app.tools.path_guard import WorkspacePathError, WorkspacePathGuard
 from app.tools.registry import FileToolRegistry
 
@@ -35,7 +38,14 @@ class PreparedToolCall:
             raise TypeError("resolved_path must be a pathlib.Path")
         if not isinstance(
             self.arguments,
-            (ListFilesArguments, ReadFileArguments, SearchFilesArguments),
+            (
+                ListFilesArguments,
+                ReadFileArguments,
+                SearchFilesArguments,
+                CreateFileArguments,
+                WriteFileArguments,
+                EditFileArguments,
+            ),
         ):
             raise TypeError("arguments must be validated file tool arguments")
         if not self.workspace.is_absolute() or not self.resolved_path.is_absolute():

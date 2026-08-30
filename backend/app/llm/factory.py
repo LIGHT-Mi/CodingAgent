@@ -12,7 +12,7 @@ def create_configured_llm_gateway() -> LLMGateway:
     """从 ``backend/.env`` 或进程环境变量创建可调用的模型网关。"""
 
     from app.core.config import settings
-    from app.tools.schemas import READ_ONLY_FILE_TOOL_SCHEMAS
+    from app.tools.schemas import FILE_TOOL_SCHEMAS
 
     secret = settings.DEEPSEEK_API_KEY
     if secret is None:
@@ -27,5 +27,5 @@ def create_configured_llm_gateway() -> LLMGateway:
             timeout_seconds=settings.DEEPSEEK_TIMEOUT_SECONDS,
         ),
         ModelConfig(model=settings.DEEPSEEK_MODEL),
-        ToolSchemaRegistry(READ_ONLY_FILE_TOOL_SCHEMAS),
+        ToolSchemaRegistry(FILE_TOOL_SCHEMAS),
     )

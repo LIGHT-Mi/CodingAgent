@@ -104,7 +104,7 @@ class LLMMessage:
 class LLMContext:
     """上下文管理与模型调用之间传递的模型上下文。
 
-    第 4 步固定以 System Prompt、Task 原始 User Prompt 开头，后面可以包含完整
+    当前固定以 System Prompt、Task 原始 User Prompt 开头，后面可以包含完整
     Assistant / Tool 历史。预算控制、Tool Result 截断、滑动窗口、Interaction
     Block 删除、摘要和 ContextOverflow 留到第 7 步。
     """

@@ -1,7 +1,7 @@
 """模型上下文构造模块。"""
 
 from app.context.manager import (
-    READ_ONLY_SYSTEM_PROMPT,
+    FILE_TOOL_SYSTEM_PROMPT,
     ContextHistoryError,
     ContextManager,
     ContextManagerError,
@@ -9,7 +9,7 @@ from app.context.manager import (
 )
 
 __all__ = [
-    "READ_ONLY_SYSTEM_PROMPT",
+    "FILE_TOOL_SYSTEM_PROMPT",
     "ContextHistoryError",
     "ContextManager",
     "ContextManagerError",
