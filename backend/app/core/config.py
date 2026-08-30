@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_TIMEOUT_SECONDS: float = Field(default=60.0, gt=0)
     MAX_AGENT_STEPS: int = Field(default=8, gt=0)
+    MAX_LLM_CONTEXT_CHARACTERS: int = Field(default=60_000, gt=0)
+    MAX_CONTEXT_TOOL_RESULT_CHARACTERS: int = Field(default=12_000, gt=0)
     COMMAND_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0)
     MAX_COMMAND_OUTPUT_BYTES_PER_STREAM: int = Field(default=65_536, ge=2)
     COMMAND_TERMINATION_GRACE_SECONDS: float = Field(default=2.0, gt=0)

@@ -9,6 +9,7 @@ from app.agent.contracts import (
     InvalidAction,
     MessageType,
     RuntimeEvent,
+    RuntimeEventType,
     TaskStatus,
     ToolCallsAction,
     ToolResult,
@@ -70,8 +71,21 @@ class AgentRuntime:
         for step_number in range(self._max_agent_steps):
             step = self._persistence.create_agent_step(task_id, step_number)
             try:
-                context = self._context_manager.build(task_id)
-                gateway_result = self._llm_gateway.invoke(context)
+                context_result = self._context_manager.build(task_id)
+                if isinstance(context_result, RuntimeEvent):
+                    if (
+                        context_result.event_type
+                        is not RuntimeEventType.CONTEXT_OVERFLOW
+                    ):
+                        raise RuntimeError(
+                            "ContextManager returned unsupported RuntimeEvent type: "
+                            f"{context_result.event_type.value}"
+                        )
+                    return self._fail_step(
+                        step.id,
+                        _runtime_event_failure_message(context_result),
+                    )
+                gateway_result = self._llm_gateway.invoke(context_result)
             except Exception as exc:
                 return self._fail_step(
                     step.id,
@@ -191,6 +205,13 @@ def _gateway_failure_message(result: LLMGatewayResult) -> str:
             f"{result.message}"
         )
     return f"Unsupported model gateway result: {type(result).__name__}"
+
+
+def _runtime_event_failure_message(event: RuntimeEvent) -> str:
+    return (
+        f"Runtime event {event.event_type.value} from {event.source}: "
+        f"{event.message}"
+    )
 
 
 def _exception_failure_message(error: Exception) -> str:

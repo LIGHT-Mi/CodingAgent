@@ -104,9 +104,10 @@ class LLMMessage:
 class LLMContext:
     """上下文管理与模型调用之间传递的模型上下文。
 
-    当前固定以 System Prompt、Task 原始 User Prompt 开头，后面可以包含完整
-    Assistant / Tool 历史。预算控制、Tool Result 截断、滑动窗口、Interaction
-    Block 删除、摘要和 ContextOverflow 留到第 7 步。
+    固定以 System Prompt、Task 原始 User Prompt 开头，后面包含 ContextManager
+    在字符预算内保留的完整 Assistant / Tool Interaction Blocks。过长 Tool Result
+    已在构造阶段保留首尾并截断；历史按完整 Block 应用滑动窗口。若基础消息本身
+    超出预算，ContextManager 返回 RuntimeEvent，而不会构造本对象。
     """
 
     messages: tuple[LLMMessage, ...]

@@ -14,7 +14,7 @@ from app.agent.contracts import TaskStatus
 from app.agent.runtime import AgentRuntime
 from app.api.task_service import TaskService
 from app.api.workspace import WorkspaceValidator
-from app.context.manager import ContextManager
+from app.context import ContextLimits, ContextManager
 from app.core.config import settings
 from app.db.persistence import PersistenceService
 from app.db.session import SessionLocal
@@ -73,7 +73,17 @@ def main(
     try:
         with session_factory() as db:
             persistence = PersistenceService(db)
-            context_manager = ContextManager(persistence)
+            context_manager = ContextManager(
+                persistence,
+                limits=ContextLimits(
+                    max_context_characters=(
+                        settings.MAX_LLM_CONTEXT_CHARACTERS
+                    ),
+                    max_tool_result_characters=(
+                        settings.MAX_CONTEXT_TOOL_RESULT_CHARACTERS
+                    ),
+                ),
+            )
             llm_gateway = llm_gateway_factory()
             command_result_builder = CommandResultBuilder()
             command_tool = RunCommandTool(
