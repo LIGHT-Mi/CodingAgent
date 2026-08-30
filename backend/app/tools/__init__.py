@@ -1,5 +1,31 @@
 """本地工具定义与执行模块。"""
 
+from app.tools.command_contracts import (
+    DEFAULT_COMMAND_CWD,
+    RUN_COMMAND_TOOL_NAME,
+    RunCommandArguments,
+)
+from app.tools.command_environment import (
+    DEFAULT_COMMAND_LOCALE,
+    CommandEnvironmentBuilder,
+)
+from app.tools.command_executor import (
+    CommandExecutionError,
+    CommandExecutionResult,
+    CommandExecutor,
+    CommandProcessStartError,
+    CommandProcessTerminationError,
+)
+from app.tools.command_policy import (
+    CommandRiskLevel,
+    CommandSafetyDecision,
+    CommandSafetyPolicy,
+    CommandSafetyVerdict,
+    build_rejected_command_result,
+    command_fingerprint,
+)
+from app.tools.command_results import CommandResultBuilder
+from app.tools.command_tool import RunCommandTool
 from app.tools.contracts import (
     DEFAULT_FILE_TOOL_LIMITS,
     DEFAULT_TOOL_PATH,
@@ -29,6 +55,7 @@ from app.tools.file_tools import (
     SearchFilesTool,
     WriteFileTool,
 )
+from app.tools.local_tool import LocalTool
 from app.tools.path_guard import (
     WorkspacePathAlreadyExistsError,
     WorkspacePathConfigurationError,
@@ -38,27 +65,67 @@ from app.tools.path_guard import (
     WorkspacePathRejectedError,
     WorkspacePathTypeError,
 )
-from app.tools.registry import (
-    DuplicateFileToolError,
-    FileToolNotFoundError,
-    FileToolRegistry,
-    FileToolRegistryError,
-    create_file_tool_registry,
+from app.tools.process_output import (
+    DEFAULT_PROCESS_READ_CHUNK_BYTES,
+    CollectedProcessOutput,
+    CollectedProcessStream,
+    ProcessOutputCollectionError,
+    ProcessOutputCollector,
 )
-from app.tools.router import PreparedToolCall, PrepareToolResult, ToolRouter
+from app.tools.registry import (
+    DuplicateLocalToolError,
+    LocalToolNotFoundError,
+    LocalToolRegistry,
+    LocalToolRegistryError,
+    create_local_tool_registry,
+)
+from app.tools.router import (
+    PreparedCommandToolCall,
+    PreparedFileToolCall,
+    PreparedToolCall,
+    PrepareToolResult,
+    ToolRouter,
+)
 from app.tools.schemas import (
+    CODING_TOOL_SCHEMAS,
     CREATE_FILE_SCHEMA,
     EDIT_FILE_SCHEMA,
-    FILE_TOOL_SCHEMAS,
     LIST_FILES_SCHEMA,
     READ_FILE_SCHEMA,
+    RUN_COMMAND_SCHEMA,
     SEARCH_FILES_SCHEMA,
     WRITE_FILE_SCHEMA,
 )
+from app.tools.working_directory_guard import (
+    WorkingDirectoryConfigurationError,
+    WorkingDirectoryError,
+    WorkingDirectoryGuard,
+    WorkingDirectoryNotFoundError,
+    WorkingDirectoryRejectedError,
+    WorkingDirectoryTypeError,
+)
 
 __all__ = [
+    "DEFAULT_COMMAND_CWD",
+    "DEFAULT_COMMAND_LOCALE",
     "DEFAULT_FILE_TOOL_LIMITS",
     "DEFAULT_TOOL_PATH",
+    "RunCommandArguments",
+    "CommandEnvironmentBuilder",
+    "CommandExecutionError",
+    "CommandExecutionResult",
+    "CommandExecutor",
+    "CommandProcessStartError",
+    "CommandProcessTerminationError",
+    "CommandResultBuilder",
+    "RunCommandTool",
+    "RUN_COMMAND_TOOL_NAME",
+    "CommandRiskLevel",
+    "CommandSafetyDecision",
+    "CommandSafetyPolicy",
+    "CommandSafetyVerdict",
+    "build_rejected_command_result",
+    "command_fingerprint",
     "CreateFileArguments",
     "EditFileArguments",
     "FileEntryType",
@@ -75,11 +142,18 @@ __all__ = [
     "format_search_files_result",
     "CREATE_FILE_SCHEMA",
     "EDIT_FILE_SCHEMA",
-    "FILE_TOOL_SCHEMAS",
+    "CODING_TOOL_SCHEMAS",
     "LIST_FILES_SCHEMA",
     "READ_FILE_SCHEMA",
+    "RUN_COMMAND_SCHEMA",
     "SEARCH_FILES_SCHEMA",
     "WRITE_FILE_SCHEMA",
+    "WorkingDirectoryConfigurationError",
+    "WorkingDirectoryError",
+    "WorkingDirectoryGuard",
+    "WorkingDirectoryNotFoundError",
+    "WorkingDirectoryRejectedError",
+    "WorkingDirectoryTypeError",
     "WorkspacePathAlreadyExistsError",
     "WorkspacePathConfigurationError",
     "WorkspacePathError",
@@ -87,20 +161,28 @@ __all__ = [
     "WorkspacePathNotFoundError",
     "WorkspacePathRejectedError",
     "WorkspacePathTypeError",
+    "DEFAULT_PROCESS_READ_CHUNK_BYTES",
+    "CollectedProcessOutput",
+    "CollectedProcessStream",
+    "ProcessOutputCollectionError",
+    "ProcessOutputCollector",
     "FileToolArguments",
     "CreateFileTool",
     "EditFileTool",
     "FileTool",
     "FileToolResourceLimitError",
+    "LocalTool",
     "ListFilesTool",
     "ReadFileTool",
     "SearchFilesTool",
     "WriteFileTool",
-    "DuplicateFileToolError",
-    "FileToolNotFoundError",
-    "FileToolRegistry",
-    "FileToolRegistryError",
-    "create_file_tool_registry",
+    "DuplicateLocalToolError",
+    "LocalToolNotFoundError",
+    "LocalToolRegistry",
+    "LocalToolRegistryError",
+    "create_local_tool_registry",
+    "PreparedCommandToolCall",
+    "PreparedFileToolCall",
     "PreparedToolCall",
     "PrepareToolResult",
     "ToolRouter",

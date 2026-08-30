@@ -33,13 +33,14 @@ from app.tools.path_guard import (
     WorkspacePathGuard,
     WorkspacePathTypeError,
 )
+from app.tools.local_tool import LocalTool
 
 
 class FileToolResourceLimitError(ValueError):
     """单个文件超过文件工具固定的资源保护上限。"""
 
 
-class FileTool(ABC):
+class FileTool(LocalTool, ABC):
     """具体文件工具共用的执行与错误标准化边界。"""
 
     name: ClassVar[str]

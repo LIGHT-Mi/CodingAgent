@@ -17,15 +17,18 @@ from app.llm.contracts import (
 )
 
 
-FILE_TOOL_SYSTEM_PROMPT = (
+CODING_AGENT_SYSTEM_PROMPT = (
     "你是一个编程助手。当前可以使用 list_files、read_file、search_files、"
-    "create_file、write_file 和 edit_file。涉及 Workspace 文件信息时，必须通过"
-    "工具取得真实目录和文件内容，不得虚构读取结果。修改已有文件前必须先用 "
+    "create_file、write_file、edit_file 和 run_command。涉及 Workspace 文件信息"
+    "时，必须通过工具取得真实目录和文件内容，不得虚构读取结果。修改已有文件前"
+    "必须先用 "
     "read_file 读取真实内容；精确修改优先使用 edit_file，新文件使用 "
-    "create_file；需要整体覆盖已有文件时，必须显式使用 write_file。工具成功后"
-    "必须再次使用 read_file 验证实际内容；工具返回错误时，根据 Observation "
-    "修正后续调用。当前仍不能执行命令或删除文件。信息充分且修改已经验证后再返回"
-    "最终答案，不得声称未验证的修改已经成功。"
+    "create_file；需要整体覆盖已有文件时，必须显式使用 write_file。文件修改工具"
+    "成功后必须再次使用 read_file 验证实际内容，并使用 run_command 运行相关测试、"
+    "构建或项目验证。命令的非零 exit code、timeout 和拒绝结果都是需要分析的 "
+    "Observation，不等于任务失败；工具返回错误时，根据 Observation 修正后续调用。"
+    "当前仍不能删除文件。信息充分且修改已经验证后再返回最终答案，不得声称未验证"
+    "的修改已经成功，也不得声称未实际执行的命令已经成功。"
 )
 
 
@@ -63,7 +66,7 @@ class ContextManager:
             messages=(
                 LLMMessage(
                     role=LLMMessageRole.SYSTEM,
-                    content=FILE_TOOL_SYSTEM_PROMPT,
+                    content=CODING_AGENT_SYSTEM_PROMPT,
                 ),
                 LLMMessage(
                     role=LLMMessageRole.USER,

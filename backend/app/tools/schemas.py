@@ -1,4 +1,4 @@
-"""当前六个文件工具的模型可见 Schema。
+"""当前七个编程工具的模型可见 Schema。
 
 Schema 在模型网关工厂中注册；本模块只负责定义，不连接模型或执行本地工具。
 """
@@ -6,6 +6,7 @@ Schema 在模型网关工厂中注册；本模块只负责定义，不连接模�
 from __future__ import annotations
 
 from app.llm.contracts import LLMToolSchema
+from app.tools.command_contracts import DEFAULT_COMMAND_CWD
 from app.tools.contracts import DEFAULT_TOOL_PATH
 
 
@@ -160,11 +161,44 @@ EDIT_FILE_SCHEMA = LLMToolSchema(
 )
 
 
-FILE_TOOL_SCHEMAS = (
+RUN_COMMAND_SCHEMA = LLMToolSchema(
+    name="run_command",
+    description=(
+        "在 Workspace 内指定工作目录执行一个受安全策略限制的本地命令，用于测试、"
+        "构建和项目运行。command 必须按 argv 拆分，不支持 Shell 字符串、管道、"
+        "重定向或后台执行。非零退出码、超时和拒绝结果都是需要分析的 Observation。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "string",
+                    "minLength": 1,
+                },
+                "description": "非空 argv 数组，每个元素对应一个命令行参数。",
+            },
+            "cwd": {
+                "type": "string",
+                "minLength": 1,
+                "default": DEFAULT_COMMAND_CWD,
+                "description": "Workspace 内的相对工作目录，默认为 Workspace 根目录。",
+            },
+        },
+        "required": ["command"],
+        "additionalProperties": False,
+    },
+)
+
+
+CODING_TOOL_SCHEMAS = (
     LIST_FILES_SCHEMA,
     READ_FILE_SCHEMA,
     SEARCH_FILES_SCHEMA,
     CREATE_FILE_SCHEMA,
     WRITE_FILE_SCHEMA,
     EDIT_FILE_SCHEMA,
+    RUN_COMMAND_SCHEMA,
 )

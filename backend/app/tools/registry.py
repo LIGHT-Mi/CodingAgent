@@ -1,66 +1,64 @@
-"""可执行本地文件工具注册表。"""
+"""文件与命令执行器共用的本地工具注册表。"""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.tools.contracts import (
-    DEFAULT_FILE_TOOL_LIMITS,
-    FileToolLimits,
-)
+from app.tools.command_tool import RunCommandTool
+from app.tools.contracts import DEFAULT_FILE_TOOL_LIMITS, FileToolLimits
 from app.tools.file_tools import (
     CreateFileTool,
     EditFileTool,
-    FileTool,
     ListFilesTool,
     ReadFileTool,
     SearchFilesTool,
     WriteFileTool,
 )
+from app.tools.local_tool import LocalTool
 
 
-class FileToolRegistryError(ValueError):
-    """文件工具注册表错误。"""
+class LocalToolRegistryError(ValueError):
+    """本地工具注册表错误。"""
 
 
-class DuplicateFileToolError(FileToolRegistryError):
-    """同名文件工具被重复注册。"""
+class DuplicateLocalToolError(LocalToolRegistryError):
+    """同名本地工具被重复注册。"""
 
 
-class FileToolNotFoundError(FileToolRegistryError):
-    """请求的文件工具没有注册。"""
+class LocalToolNotFoundError(LocalToolRegistryError):
+    """请求的本地工具没有注册。"""
 
 
-class FileToolRegistry:
-    """按工具名映射本地执行器，与模型 ToolSchemaRegistry 相互独立。"""
+class LocalToolRegistry:
+    """按名称保存本地执行器，与模型 ToolSchemaRegistry 保持分离。"""
 
-    def __init__(self, tools: Iterable[FileTool] = ()) -> None:
-        self._tools: dict[str, FileTool] = {}
+    def __init__(self, tools: Iterable[LocalTool] = ()) -> None:
+        self._tools: dict[str, LocalTool] = {}
         for tool in tools:
             self.register(tool)
 
-    def register(self, tool: FileTool) -> None:
-        if not isinstance(tool, FileTool):
-            raise TypeError("tool must be a FileTool")
+    def register(self, tool: LocalTool) -> None:
+        if not isinstance(tool, LocalTool):
+            raise TypeError("tool must be a LocalTool")
         if tool.name in self._tools:
-            raise DuplicateFileToolError(
-                f"file tool {tool.name!r} is already registered"
+            raise DuplicateLocalToolError(
+                f"local tool {tool.name!r} is already registered"
             )
         self._tools[tool.name] = tool
 
-    def get(self, tool_name: str) -> FileTool | None:
+    def get(self, tool_name: str) -> LocalTool | None:
         _require_tool_name(tool_name)
         return self._tools.get(tool_name)
 
-    def require(self, tool_name: str) -> FileTool:
+    def require(self, tool_name: str) -> LocalTool:
         tool = self.get(tool_name)
         if tool is None:
-            raise FileToolNotFoundError(
-                f"file tool {tool_name!r} is not registered"
+            raise LocalToolNotFoundError(
+                f"local tool {tool_name!r} is not registered"
             )
         return tool
 
-    def get_all(self) -> tuple[FileTool, ...]:
+    def get_all(self) -> tuple[LocalTool, ...]:
         return tuple(self._tools.values())
 
     def names(self) -> tuple[str, ...]:
@@ -73,13 +71,16 @@ class FileToolRegistry:
         return len(self._tools)
 
 
-def create_file_tool_registry(
+def create_local_tool_registry(
+    command_tool: RunCommandTool,
     *,
     limits: FileToolLimits = DEFAULT_FILE_TOOL_LIMITS,
-) -> FileToolRegistry:
-    """使用共享资源上限装配当前应用入口启用的六个文件工具。"""
+) -> LocalToolRegistry:
+    """装配当前六个文件工具和一个 run_command 执行器。"""
 
-    return FileToolRegistry(
+    if not isinstance(command_tool, RunCommandTool):
+        raise TypeError("command_tool must be a RunCommandTool")
+    return LocalToolRegistry(
         (
             ListFilesTool(limits),
             ReadFileTool(limits),
@@ -87,6 +88,7 @@ def create_file_tool_registry(
             CreateFileTool(limits),
             WriteFileTool(limits),
             EditFileTool(limits),
+            command_tool,
         )
     )
 

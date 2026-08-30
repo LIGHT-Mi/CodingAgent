@@ -21,9 +21,14 @@ from app.db.session import SessionLocal
 from app.llm.factory import create_configured_llm_gateway
 from app.llm.gateway import LLMGateway
 from app.tools import (
+    CommandExecutor,
+    CommandResultBuilder,
+    CommandSafetyPolicy,
+    RunCommandTool,
     ToolRouter,
+    WorkingDirectoryGuard,
     WorkspacePathGuard,
-    create_file_tool_registry,
+    create_local_tool_registry,
 )
 
 
@@ -70,13 +75,29 @@ def main(
             persistence = PersistenceService(db)
             context_manager = ContextManager(persistence)
             llm_gateway = llm_gateway_factory()
+            command_result_builder = CommandResultBuilder()
+            command_tool = RunCommandTool(
+                CommandExecutor(
+                    timeout_seconds=settings.COMMAND_TIMEOUT_SECONDS,
+                    termination_grace_seconds=(
+                        settings.COMMAND_TERMINATION_GRACE_SECONDS
+                    ),
+                    max_output_bytes_per_stream=(
+                        settings.MAX_COMMAND_OUTPUT_BYTES_PER_STREAM
+                    ),
+                ),
+                command_result_builder,
+            )
             agent_runtime = AgentRuntime(
                 persistence,
                 context_manager,
                 llm_gateway,
                 ToolRouter(
-                    create_file_tool_registry(),
+                    create_local_tool_registry(command_tool),
                     WorkspacePathGuard(),
+                    WorkingDirectoryGuard(),
+                    CommandSafetyPolicy(),
+                    command_result_builder,
                 ),
                 max_agent_steps=settings.MAX_AGENT_STEPS,
             )

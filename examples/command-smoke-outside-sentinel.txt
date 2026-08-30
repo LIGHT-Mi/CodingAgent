@@ -1,0 +1,1 @@
+This file is outside the command smoke workspace and must not be read by file tools.
