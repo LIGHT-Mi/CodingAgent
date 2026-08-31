@@ -342,6 +342,63 @@ class PersistenceServiceTests(unittest.TestCase):
             [persisted_calls[0].id, persisted_calls[1].id],
         )
 
+    def test_interrupt_open_tool_calls_uses_non_fatal_cancellation_metadata(
+        self,
+    ) -> None:
+        task, step = self._create_running_task_with_step()
+        _, tool_calls = self.persistence.save_tool_calls_action(
+            task.id,
+            step.id,
+            ToolCallsAction(
+                tool_calls=(
+                    ToolCallRequest(
+                        tool_call_id="provider-running",
+                        tool_name="create_file",
+                        arguments={"path": "new.py", "content": "pass\n"},
+                        call_index=0,
+                    ),
+                    ToolCallRequest(
+                        tool_call_id="provider-pending",
+                        tool_name="read_file",
+                        arguments={"path": "main.py"},
+                        call_index=1,
+                    ),
+                )
+            ),
+        )
+        self.persistence.start_tool_call(tool_calls[0].id)
+
+        interrupted_calls = self.persistence.interrupt_open_tool_calls(
+            step.id,
+            "USER_CANCELLED",
+        )
+
+        self.assertEqual(
+            [call.provider_call_id for call in interrupted_calls],
+            ["provider-running", "provider-pending"],
+        )
+        persisted_calls = self.persistence.load_tool_calls(task.id)
+        self.assertTrue(
+            all(call.status == ToolCallStatus.ERROR.value for call in persisted_calls)
+        )
+        self.assertEqual(
+            [call.result_metadata for call in persisted_calls],
+            [
+                {"interrupted": True, "reason": "USER_CANCELLED"},
+                {"interrupted": True, "reason": "USER_CANCELLED"},
+            ],
+        )
+        self.assertTrue(
+            all("ToolCall interrupted" in call.error for call in persisted_calls)
+        )
+        self.assertTrue(all(call.finished_at is not None for call in persisted_calls))
+        messages = self.persistence.load_messages(task.id)
+        self.assertEqual([message.sequence for message in messages], [0, 1, 2])
+        self.assertEqual(
+            [message.tool_call_id for message in messages[1:]],
+            [persisted_calls[0].id, persisted_calls[1].id],
+        )
+
     def test_reject_invalid_lifecycle_transitions(self) -> None:
         coding_session = self.persistence.create_session()
         task = self.persistence.create_task(

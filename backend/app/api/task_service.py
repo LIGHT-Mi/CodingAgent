@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.agent.cancellation import CancellationToken
 from app.agent.contracts import AgentResult
 from app.agent.runtime import AgentRuntime
 from app.api.workspace import WorkspaceValidator
@@ -35,8 +36,12 @@ class TaskService:
         self._workspace_validator = workspace_validator
         self._agent_runtime = agent_runtime
 
-    def run(self, prompt: str, workspace: str | Path) -> AgentResult:
-        """校验输入、创建新 Session 和 Task，并返回 Agent 最终结果。"""
+    def create_task(
+        self,
+        prompt: str,
+        workspace: str | Path,
+    ) -> str:
+        """校验输入并创建 PENDING Task，不启动 Agent Runtime。"""
 
         _validate_prompt(prompt)
         validated_workspace = self._workspace_validator.validate(workspace)
@@ -47,11 +52,36 @@ class TaskService:
             original_prompt=prompt,
             workspace=str(validated_workspace),
         )
-        self._persistence.start_task(task.id)
+        return task.id
 
-        result = self._agent_runtime.run(task.id)
-        self._persistence.finish_task(task.id, result)
+    def execute_task(
+        self,
+        task_id: str,
+        cancellation_token: CancellationToken | None = None,
+    ) -> AgentResult:
+        """启动已有 PENDING Task，执行 Agent 并持久化终态。"""
+
+        if cancellation_token is not None and not isinstance(
+            cancellation_token,
+            CancellationToken,
+        ):
+            raise TypeError("cancellation_token must be a CancellationToken")
+        self._persistence.start_task(task_id)
+
+        result = self._agent_runtime.run(task_id, cancellation_token)
+        self._persistence.finish_task(task_id, result)
         return result
+
+    def run_task_and_wait(
+        self,
+        prompt: str,
+        workspace: str | Path,
+        cancellation_token: CancellationToken | None = None,
+    ) -> AgentResult:
+        """使用创建和执行两个边界同步完成一次任务。"""
+
+        task_id = self.create_task(prompt, workspace)
+        return self.execute_task(task_id, cancellation_token)
 
 
 def _validate_prompt(prompt: str) -> None:

@@ -1,0 +1,101 @@
+"""将持久化记录显式转换为面向 Web 客户端的响应结构。"""
+
+from __future__ import annotations
+
+from app.agent import (
+    AgentStepStatus,
+    MessageRole,
+    MessageType,
+    TaskStatus,
+    ToolCallStatus,
+)
+from app.db.persistence import PersistenceService, RecordNotFoundError
+from app.web.contracts import (
+    AgentStepResponse,
+    MessageResponse,
+    TaskResponse,
+    ToolCallResponse,
+)
+
+
+class TaskQueryService:
+    """查询 Task 运行快照；不向 HTTP 层返回 ORM 对象。"""
+
+    def __init__(self, persistence: PersistenceService) -> None:
+        if not isinstance(persistence, PersistenceService):
+            raise TypeError("persistence must be a PersistenceService")
+        self._persistence = persistence
+
+    def get_task(self, task_id: str) -> TaskResponse:
+        task = self._persistence.get_task(task_id)
+        if task is None:
+            raise RecordNotFoundError(f"Task {task_id} was not found")
+        return TaskResponse(
+            id=task.id,
+            session_id=task.session_id,
+            original_prompt=task.original_prompt,
+            workspace=task.workspace,
+            status=TaskStatus(task.status),
+            final_answer=task.final_answer,
+            error=task.error,
+            termination_reason=task.termination_reason,
+            created_at=task.created_at,
+            started_at=task.started_at,
+            finished_at=task.finished_at,
+        )
+
+    def get_steps(self, task_id: str) -> list[AgentStepResponse]:
+        return [
+            AgentStepResponse(
+                id=step.id,
+                task_id=step.task_id,
+                step_number=step.step_number,
+                status=AgentStepStatus(step.status),
+                error=step.error,
+                started_at=step.started_at,
+                finished_at=step.finished_at,
+            )
+            for step in self._persistence.load_agent_steps(task_id)
+        ]
+
+    def get_messages(self, task_id: str) -> list[MessageResponse]:
+        return [
+            MessageResponse(
+                id=message.id,
+                task_id=message.task_id,
+                step_id=message.step_id,
+                tool_call_id=message.tool_call_id,
+                sequence=message.sequence,
+                role=MessageRole(message.role),
+                message_type=MessageType(message.message_type),
+                content=message.content,
+                created_at=message.created_at,
+            )
+            for message in self._persistence.load_messages(task_id)
+        ]
+
+    def get_tool_calls(self, task_id: str) -> list[ToolCallResponse]:
+        return [
+            ToolCallResponse(
+                id=tool_call.id,
+                step_id=tool_call.step_id,
+                assistant_message_id=tool_call.assistant_message_id,
+                call_index=tool_call.call_index,
+                tool_name=tool_call.tool_name,
+                arguments=dict(tool_call.arguments),
+                status=ToolCallStatus(tool_call.status),
+                exit_code=tool_call.exit_code,
+                stdout=tool_call.stdout,
+                stderr=tool_call.stderr,
+                result=tool_call.result,
+                result_metadata=(
+                    None
+                    if tool_call.result_metadata is None
+                    else dict(tool_call.result_metadata)
+                ),
+                error=tool_call.error,
+                started_at=tool_call.started_at,
+                finished_at=tool_call.finished_at,
+            )
+            for tool_call in self._persistence.load_tool_calls(task_id)
+        ]

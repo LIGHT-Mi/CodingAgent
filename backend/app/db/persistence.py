@@ -412,6 +412,69 @@ class PersistenceService:
             self._db.flush()
         return open_tool_calls
 
+    def interrupt_open_tool_calls(
+        self,
+        step_id: str,
+        reason: str,
+    ) -> tuple[ToolCall, ...]:
+        """因 Task 中断将未终态 ToolCall 闭合为带中断标记的 ERROR。"""
+
+        _require_non_blank(step_id, "step_id")
+        _require_non_blank(reason, "reason")
+        error = f"ToolCall interrupted: {reason}"
+
+        with self._write_transaction("interrupt open tool calls"):
+            step = self._require_agent_step(step_id)
+            self._require_running_task_and_step(step.task_id, step.id)
+            open_tool_calls = tuple(
+                self._db.scalars(
+                    select(ToolCall)
+                    .where(
+                        ToolCall.step_id == step.id,
+                        ToolCall.status.in_(
+                            (
+                                ToolCallStatus.PENDING.value,
+                                ToolCallStatus.RUNNING.value,
+                            )
+                        ),
+                    )
+                    .order_by(ToolCall.call_index.asc())
+                ).all()
+            )
+            if not open_tool_calls:
+                return ()
+
+            next_sequence = self._next_message_sequence(step.task_id)
+            finished_at = _utc_now()
+            result_messages: list[Message] = []
+            for sequence_offset, tool_call in enumerate(open_tool_calls):
+                tool_call.status = ToolCallStatus.ERROR.value
+                tool_call.exit_code = None
+                tool_call.stdout = None
+                tool_call.stderr = None
+                tool_call.result = None
+                tool_call.result_metadata = {
+                    "interrupted": True,
+                    "reason": reason,
+                }
+                tool_call.error = error
+                tool_call.finished_at = finished_at
+                result_messages.append(
+                    Message(
+                        task_id=step.task_id,
+                        step_id=step.id,
+                        tool_call_id=tool_call.id,
+                        sequence=next_sequence + sequence_offset,
+                        role=MessageRole.TOOL.value,
+                        message_type=MessageType.TOOL_RESULT.value,
+                        content=error,
+                    )
+                )
+
+            self._db.add_all(result_messages)
+            self._db.flush()
+        return open_tool_calls
+
     def load_agent_steps(self, task_id: str) -> list[AgentStep]:
         """按 step_number 加载任务的全部 AgentStep。"""
 

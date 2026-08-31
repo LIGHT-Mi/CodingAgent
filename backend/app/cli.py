@@ -3,37 +3,27 @@
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
+from types import FrameType
 from typing import TextIO
 
-from sqlalchemy.orm import Session
-
+from app.agent import CancellationToken
 from app.agent.contracts import TaskStatus
-from app.agent.runtime import AgentRuntime
-from app.api.task_service import TaskService
-from app.api.workspace import WorkspaceValidator
-from app.context import ContextLimits, ContextManager
+from app.application import (
+    ApplicationFactory,
+    LLMGatewayFactory,
+    SessionFactory,
+)
 from app.core.config import settings
-from app.db.persistence import PersistenceService
 from app.db.session import SessionLocal
 from app.llm.factory import create_configured_llm_gateway
-from app.llm.gateway import LLMGateway
-from app.tools import (
-    CommandExecutor,
-    CommandResultBuilder,
-    CommandSafetyPolicy,
-    RunCommandTool,
-    ToolRouter,
-    WorkingDirectoryGuard,
-    WorkspacePathGuard,
-    create_local_tool_registry,
-)
 
 
-SessionFactory = Callable[[], Session]
-LLMGatewayFactory = Callable[[], LLMGateway]
+CLI_CANCELLATION_REASON = "USER_CANCELLED"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,59 +54,26 @@ def main(
     """解析参数、装配服务、执行任务，并返回进程退出码。"""
 
     args = build_parser().parse_args(argv)
-    configured_root = (
-        settings.ALLOWED_WORKSPACE_ROOT
-        if allowed_workspace_root is None
-        else allowed_workspace_root
+    application_factory = ApplicationFactory(
+        settings,
+        session_factory=session_factory,
+        llm_gateway_factory=llm_gateway_factory,
+        allowed_workspace_root=allowed_workspace_root,
     )
 
+    cancellation_token = CancellationToken()
     try:
-        with session_factory() as db:
-            persistence = PersistenceService(db)
-            context_manager = ContextManager(
-                persistence,
-                limits=ContextLimits(
-                    max_context_characters=(
-                        settings.MAX_LLM_CONTEXT_CHARACTERS
-                    ),
-                    max_tool_result_characters=(
-                        settings.MAX_CONTEXT_TOOL_RESULT_CHARACTERS
-                    ),
-                ),
-            )
-            llm_gateway = llm_gateway_factory()
-            command_result_builder = CommandResultBuilder()
-            command_tool = RunCommandTool(
-                CommandExecutor(
-                    timeout_seconds=settings.COMMAND_TIMEOUT_SECONDS,
-                    termination_grace_seconds=(
-                        settings.COMMAND_TERMINATION_GRACE_SECONDS
-                    ),
-                    max_output_bytes_per_stream=(
-                        settings.MAX_COMMAND_OUTPUT_BYTES_PER_STREAM
-                    ),
-                ),
-                command_result_builder,
-            )
-            agent_runtime = AgentRuntime(
-                persistence,
-                context_manager,
-                llm_gateway,
-                ToolRouter(
-                    create_local_tool_registry(command_tool),
-                    WorkspacePathGuard(),
-                    WorkingDirectoryGuard(),
-                    CommandSafetyPolicy(),
-                    command_result_builder,
-                ),
-                max_agent_steps=settings.MAX_AGENT_STEPS,
-            )
-            task_service = TaskService(
-                persistence,
-                WorkspaceValidator(configured_root),
-                agent_runtime,
-            )
-            result = task_service.run(args.prompt, args.workspace)
+        with _translate_sigint_to_cancellation(cancellation_token):
+            with application_factory.create_db_session() as db:
+                persistence = application_factory.create_persistence_service(db)
+                task_service = application_factory.create_task_service(
+                    persistence,
+                )
+                result = task_service.run_task_and_wait(
+                    args.prompt,
+                    args.workspace,
+                    cancellation_token,
+                )
     except Exception as exc:
         print(f"任务执行失败：{exc}", file=stderr)
         return 1
@@ -125,9 +82,39 @@ def main(
         print(result.final_answer, file=stdout)
         return 0
 
+    if result.status is TaskStatus.CANCELLED:
+        reason = result.termination_reason or CLI_CANCELLATION_REASON
+        print(f"任务已取消：{reason}", file=stderr)
+        return 1
+
     error = result.error or result.termination_reason or result.status.value
     print(f"任务执行失败：{error}", file=stderr)
     return 1
+
+
+@contextmanager
+def _translate_sigint_to_cancellation(
+    cancellation_token: CancellationToken,
+) -> Iterator[None]:
+    """运行期间把 Ctrl+C 转换为协作式取消，并在结束后恢复处理器。"""
+
+    if not isinstance(cancellation_token, CancellationToken):
+        raise TypeError("cancellation_token must be a CancellationToken")
+
+    previous_handler = signal.getsignal(signal.SIGINT)
+
+    def request_cancellation(
+        signum: int,
+        frame: FrameType | None,
+    ) -> None:
+        del signum, frame
+        cancellation_token.cancel(CLI_CANCELLATION_REASON)
+
+    signal.signal(signal.SIGINT, request_cancellation)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
 
 
 if __name__ == "__main__":
