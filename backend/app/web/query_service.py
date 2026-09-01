@@ -9,10 +9,17 @@ from app.agent import (
     TaskStatus,
     ToolCallStatus,
 )
+from app.api.conversation_service import (
+    ConversationRecord,
+    ConversationService,
+    ConversationTaskRecord,
+)
 from app.db.persistence import PersistenceService, RecordNotFoundError
 from app.web.contracts import (
     AgentStepResponse,
     MessageResponse,
+    SessionSummaryResponse,
+    TaskSnapshotResponse,
     TaskResponse,
     ToolCallResponse,
 )
@@ -99,3 +106,74 @@ class TaskQueryService:
             )
             for tool_call in self._persistence.load_tool_calls(task_id)
         ]
+
+    def get_snapshot(self, task_id: str) -> TaskSnapshotResponse:
+        """聚合一个 Task 的状态与完整有序执行历史。"""
+
+        return TaskSnapshotResponse(
+            task=self.get_task(task_id),
+            steps=self.get_steps(task_id),
+            messages=self.get_messages(task_id),
+            tool_calls=self.get_tool_calls(task_id),
+        )
+
+
+class ConversationQueryService:
+    """把 ConversationService 结果转换为明确的 Web DTO。"""
+
+    def __init__(self, conversation_service: ConversationService) -> None:
+        if not isinstance(conversation_service, ConversationService):
+            raise TypeError(
+                "conversation_service must be a ConversationService"
+            )
+        self._conversation_service = conversation_service
+
+    def list_conversations(self) -> list[SessionSummaryResponse]:
+        return [
+            _to_session_summary(record)
+            for record in self._conversation_service.list_conversations()
+        ]
+
+    def get_conversation(
+        self,
+        session_id: str,
+    ) -> SessionSummaryResponse:
+        return _to_session_summary(
+            self._conversation_service.get_conversation(session_id)
+        )
+
+    def list_tasks(self, session_id: str) -> list[TaskResponse]:
+        return [
+            _to_task_response(task)
+            for task in self._conversation_service.list_tasks(session_id)
+        ]
+
+
+def _to_session_summary(
+    conversation: ConversationRecord,
+) -> SessionSummaryResponse:
+    return SessionSummaryResponse(
+        id=conversation.id,
+        title=conversation.title,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        latest_task_id=conversation.latest_task_id,
+        latest_task_status=conversation.latest_task_status,
+        latest_workspace=conversation.latest_workspace,
+    )
+
+
+def _to_task_response(task: ConversationTaskRecord) -> TaskResponse:
+    return TaskResponse(
+        id=task.id,
+        session_id=task.session_id,
+        original_prompt=task.original_prompt,
+        workspace=task.workspace,
+        status=task.status,
+        final_answer=task.final_answer,
+        error=task.error,
+        termination_reason=task.termination_reason,
+        created_at=task.created_at,
+        started_at=task.started_at,
+        finished_at=task.finished_at,
+    )

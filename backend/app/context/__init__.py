@@ -1,6 +1,10 @@
 """模型上下文构造模块。"""
 
-from app.context.contracts import ContextLimits, InteractionBlock
+from app.context.contracts import (
+    ContextLimits,
+    ConversationTurnBlock,
+    InteractionBlock,
+)
 from app.context.counting import ContextCharacterCounter
 from app.context.manager import (
     CODING_AGENT_SYSTEM_PROMPT,
@@ -17,6 +21,7 @@ __all__ = [
     "ContextCharacterCounter",
     "ContextBuildResult",
     "ContextLimits",
+    "ConversationTurnBlock",
     "InteractionBlock",
     "ToolResultTruncator",
     "ContextHistoryError",

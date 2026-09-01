@@ -17,12 +17,15 @@ from app.agent.contracts import (
 from app.application import TaskCancellationOutcome
 
 
-API_TASKS_PATH = "/api/tasks"
 API_TASK_PATH = "/api/tasks/{task_id}"
 API_TASK_STEPS_PATH = "/api/tasks/{task_id}/steps"
 API_TASK_MESSAGES_PATH = "/api/tasks/{task_id}/messages"
 API_TASK_TOOL_CALLS_PATH = "/api/tasks/{task_id}/tool-calls"
 API_TASK_CANCEL_PATH = "/api/tasks/{task_id}/cancel"
+API_TASK_SNAPSHOT_PATH = "/api/tasks/{task_id}/snapshot"
+API_SESSIONS_PATH = "/api/sessions"
+API_SESSION_PATH = "/api/sessions/{session_id}"
+API_SESSION_TASKS_PATH = "/api/sessions/{session_id}/tasks"
 
 
 class WebContract(BaseModel):
@@ -31,7 +34,7 @@ class WebContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class CreateTaskRequest(WebContract):
+class TaskCreationRequest(WebContract):
     prompt: str = Field(min_length=1)
     workspace: str = Field(min_length=1)
 
@@ -43,9 +46,35 @@ class CreateTaskRequest(WebContract):
         return value
 
 
-class CreateTaskResponse(WebContract):
+class CreateSessionRequest(TaskCreationRequest):
+    """创建 Session 及第一轮 Task 的请求。"""
+
+
+class CreateSessionTaskRequest(TaskCreationRequest):
+    """在已有 Session 中创建后续 Task 的请求。"""
+
+
+class CreateSessionResponse(WebContract):
+    session_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    status: Literal[TaskStatus.PENDING] = TaskStatus.PENDING
+
+
+class CreateSessionTaskResponse(WebContract):
+    session_id: str = Field(min_length=1)
     task_id: str = Field(min_length=1)
     status: Literal[TaskStatus.PENDING] = TaskStatus.PENDING
+
+
+class SessionSummaryResponse(WebContract):
+    id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    created_at: datetime
+    updated_at: datetime
+    latest_task_id: str = Field(min_length=1)
+    latest_task_status: TaskStatus
+    latest_workspace: str = Field(min_length=1)
 
 
 class TaskResponse(WebContract):
@@ -107,6 +136,13 @@ class CancelTaskResponse(WebContract):
     status: TaskStatus
     cancellation_requested: bool
     outcome: TaskCancellationOutcome
+
+
+class TaskSnapshotResponse(WebContract):
+    task: TaskResponse
+    steps: list[AgentStepResponse]
+    messages: list[MessageResponse]
+    tool_calls: list[ToolCallResponse]
 
 
 class ErrorResponse(WebContract):

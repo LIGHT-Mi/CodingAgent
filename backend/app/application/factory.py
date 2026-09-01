@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.agent import RetryWaiter, RuntimePolicy, RuntimePolicyConfig
 from app.agent.runtime import AgentRuntime
+from app.api.conversation_service import ConversationService, TaskSubmitter
 from app.api.task_service import TaskService
 from app.api.workspace import WorkspaceValidator
 from app.context import ContextLimits, ContextManager
@@ -154,4 +155,17 @@ class ApplicationFactory:
             persistence,
             WorkspaceValidator(self._allowed_workspace_root),
             self.create_runtime(persistence),
+        )
+
+    def create_conversation_service(
+        self,
+        persistence: PersistenceService,
+        task_submitter: TaskSubmitter,
+    ) -> ConversationService:
+        """创建 Web 多轮会话使用的应用服务。"""
+
+        return ConversationService(
+            persistence,
+            WorkspaceValidator(self._allowed_workspace_root),
+            task_submitter,
         )

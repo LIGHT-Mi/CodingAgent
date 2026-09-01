@@ -36,6 +36,11 @@ tmp/
 temp/
 .DS_Store
 
+# Frontend dependencies, build output, and local public configuration
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.env
+
 # IDE/editor local settings
 .idea/
 .vscode/

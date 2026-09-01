@@ -30,6 +30,35 @@ class ContextLimits:
 
 
 @dataclass(frozen=True, slots=True)
+class ConversationTurnBlock:
+    """一个历史 Task 压缩成的不可拆分 USER/ASSISTANT 会话轮次。"""
+
+    messages: tuple[LLMMessage, LLMMessage]
+
+    def __post_init__(self) -> None:
+        messages = tuple(self.messages)
+        if len(messages) != 2:
+            raise ValueError(
+                "a conversation turn block must contain exactly two messages"
+            )
+        if any(not isinstance(message, LLMMessage) for message in messages):
+            raise TypeError("messages must contain only LLMMessage values")
+        if tuple(message.role for message in messages) != (
+            LLMMessageRole.USER,
+            LLMMessageRole.ASSISTANT,
+        ):
+            raise ValueError(
+                "a conversation turn block must be ordered as USER, ASSISTANT"
+            )
+        assistant_message = messages[1]
+        if assistant_message.tool_calls:
+            raise ValueError(
+                "a conversation turn summary cannot contain tool calls"
+            )
+        object.__setattr__(self, "messages", messages)
+
+
+@dataclass(frozen=True, slots=True)
 class InteractionBlock:
     """一个可以整体保留或整体删除的 Assistant/Tool 历史单元。
 

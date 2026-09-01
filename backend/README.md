@@ -31,11 +31,16 @@ Start the FastAPI application with:
 ```
 
 Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
-The current polling API provides:
+The multi-turn polling API provides:
 
 ```text
-POST /api/tasks
+POST /api/sessions
+GET  /api/sessions
+GET  /api/sessions/{session_id}
+GET  /api/sessions/{session_id}/tasks
+POST /api/sessions/{session_id}/tasks
 GET  /api/tasks/{task_id}
+GET  /api/tasks/{task_id}/snapshot
 GET  /api/tasks/{task_id}/steps
 GET  /api/tasks/{task_id}/messages
 GET  /api/tasks/{task_id}/tool-calls

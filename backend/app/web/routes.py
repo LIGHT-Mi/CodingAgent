@@ -7,28 +7,41 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from app.api.conversation_service import (
+    ConversationService,
+    ConversationTaskSubmissionError,
+)
 from app.application import (
     TaskCancellationOutcome,
     TaskRunner,
-    TaskRunnerError,
 )
-from app.db.persistence import PersistenceService
+from app.db.persistence import (
+    InvalidStateTransitionError,
+    PersistenceService,
+)
 from app.web.contracts import (
+    API_SESSIONS_PATH,
+    API_SESSION_PATH,
+    API_SESSION_TASKS_PATH,
     API_TASK_CANCEL_PATH,
     API_TASK_MESSAGES_PATH,
     API_TASK_PATH,
+    API_TASK_SNAPSHOT_PATH,
     API_TASK_STEPS_PATH,
     API_TASK_TOOL_CALLS_PATH,
-    API_TASKS_PATH,
     AgentStepResponse,
     CancelTaskResponse,
-    CreateTaskRequest,
-    CreateTaskResponse,
+    CreateSessionRequest,
+    CreateSessionResponse,
+    CreateSessionTaskRequest,
+    CreateSessionTaskResponse,
     MessageResponse,
+    SessionSummaryResponse,
+    TaskSnapshotResponse,
     TaskResponse,
     ToolCallResponse,
 )
-from app.web.query_service import TaskQueryService
+from app.web.query_service import ConversationQueryService, TaskQueryService
 
 
 router = APIRouter()
@@ -48,29 +61,114 @@ PersistenceDependency = Annotated[
 ]
 
 
+def _create_conversation_service(
+    request: Request,
+    persistence: PersistenceService,
+) -> ConversationService:
+    return request.app.state.application_factory.create_conversation_service(
+        persistence,
+        request.app.state.task_runner,
+    )
+
+
 @router.post(
-    API_TASKS_PATH,
-    response_model=CreateTaskResponse,
+    API_SESSIONS_PATH,
+    response_model=CreateSessionResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def create_task(
-    payload: CreateTaskRequest,
+def create_session(
+    payload: CreateSessionRequest,
     request: Request,
     persistence: PersistenceDependency,
-) -> CreateTaskResponse:
-    task_service = request.app.state.application_factory.create_task_service(
-        persistence
-    )
-    task_id = task_service.create_task(payload.prompt, payload.workspace)
-    task_runner: TaskRunner = request.app.state.task_runner
+) -> CreateSessionResponse:
+    conversation_service = _create_conversation_service(request, persistence)
     try:
-        task_runner.submit(task_id)
-    except TaskRunnerError as exc:
+        created = conversation_service.create_conversation(
+            payload.prompt,
+            payload.workspace,
+        )
+    except ConversationTaskSubmissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Task could not be scheduled",
         ) from exc
-    return CreateTaskResponse(task_id=task_id)
+    return CreateSessionResponse(
+        session_id=created.session_id,
+        task_id=created.task_id,
+        title=created.title,
+    )
+
+
+@router.get(
+    API_SESSIONS_PATH,
+    response_model=list[SessionSummaryResponse],
+)
+def list_sessions(
+    request: Request,
+    persistence: PersistenceDependency,
+) -> list[SessionSummaryResponse]:
+    conversation_service = _create_conversation_service(request, persistence)
+    return ConversationQueryService(
+        conversation_service
+    ).list_conversations()
+
+
+@router.get(API_SESSION_PATH, response_model=SessionSummaryResponse)
+def get_session(
+    session_id: str,
+    request: Request,
+    persistence: PersistenceDependency,
+) -> SessionSummaryResponse:
+    conversation_service = _create_conversation_service(request, persistence)
+    return ConversationQueryService(conversation_service).get_conversation(
+        session_id
+    )
+
+
+@router.get(API_SESSION_TASKS_PATH, response_model=list[TaskResponse])
+def list_session_tasks(
+    session_id: str,
+    request: Request,
+    persistence: PersistenceDependency,
+) -> list[TaskResponse]:
+    conversation_service = _create_conversation_service(request, persistence)
+    return ConversationQueryService(conversation_service).list_tasks(
+        session_id
+    )
+
+
+@router.post(
+    API_SESSION_TASKS_PATH,
+    response_model=CreateSessionTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_session_task(
+    session_id: str,
+    payload: CreateSessionTaskRequest,
+    request: Request,
+    persistence: PersistenceDependency,
+) -> CreateSessionTaskResponse:
+    conversation_service = _create_conversation_service(request, persistence)
+    try:
+        task_id = conversation_service.create_task(
+            session_id,
+            payload.prompt,
+            payload.workspace,
+        )
+    except InvalidStateTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session already has an active task",
+        ) from exc
+    except ConversationTaskSubmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Task could not be scheduled",
+        ) from exc
+    return CreateSessionTaskResponse(
+        session_id=session_id,
+        task_id=task_id,
+    )
 
 
 @router.get(API_TASK_PATH, response_model=TaskResponse)
@@ -79,6 +177,14 @@ def get_task(
     persistence: PersistenceDependency,
 ) -> TaskResponse:
     return TaskQueryService(persistence).get_task(task_id)
+
+
+@router.get(API_TASK_SNAPSHOT_PATH, response_model=TaskSnapshotResponse)
+def get_task_snapshot(
+    task_id: str,
+    persistence: PersistenceDependency,
+) -> TaskSnapshotResponse:
+    return TaskQueryService(persistence).get_snapshot(task_id)
 
 
 @router.get(API_TASK_STEPS_PATH, response_model=list[AgentStepResponse])

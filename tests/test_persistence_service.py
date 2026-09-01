@@ -1,6 +1,9 @@
 import unittest
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.agent.contracts import (
@@ -16,9 +19,11 @@ from app.agent.contracts import (
     ToolResultStatus,
 )
 from app.db.base import Base
+from app.db.models.task import Task
 from app.db.persistence import (
     InvalidStateTransitionError,
     PersistenceService,
+    PersistenceServiceError,
     PersistenceValidationError,
     RecordNotFoundError,
 )
@@ -40,18 +45,167 @@ class PersistenceServiceTests(unittest.TestCase):
         self.db.close()
         self.engine.dispose()
 
+    def test_create_session_with_task_rolls_back_as_one_transaction(
+        self,
+    ) -> None:
+        with patch.object(
+            self.db,
+            "flush",
+            side_effect=SQLAlchemyError("forced flush failure"),
+        ):
+            with self.assertRaises(PersistenceServiceError):
+                self.persistence.create_session_with_task(
+                    title="原子创建测试",
+                    original_prompt="创建第一条任务",
+                    workspace="/workspace/demo",
+                )
+
+        self.assertEqual(self.persistence.list_sessions(), [])
+        self.assertEqual(list(self.db.scalars(select(Task)).all()), [])
+
+    def test_create_session_with_task_validates_title_length(self) -> None:
+        with self.assertRaises(PersistenceValidationError):
+            self.persistence.create_session_with_task(
+                title="x" * 129,
+                original_prompt="创建第一条任务",
+                workspace="/workspace/demo",
+            )
+
+        self.assertEqual(self.persistence.list_sessions(), [])
+
+    def test_fail_pending_task_closes_unscheduled_task(self) -> None:
+        coding_session, task = self.persistence.create_session_with_task(
+            title="后台提交失败",
+            original_prompt="执行任务",
+            workspace="/workspace/demo",
+        )
+
+        failed_task = self.persistence.fail_pending_task(
+            task.id,
+            "Background task scheduling failed",
+        )
+
+        self.assertEqual(failed_task.status, TaskStatus.FAILED.value)
+        self.assertEqual(
+            failed_task.error,
+            "Background task scheduling failed",
+        )
+        self.assertIsNone(failed_task.started_at)
+        self.assertIsNotNone(failed_task.finished_at)
+        self.assertFalse(
+            self.persistence.has_active_session_task(coding_session.id)
+        )
+        with self.assertRaises(InvalidStateTransitionError):
+            self.persistence.fail_pending_task(task.id, "再次关闭")
+
+    def test_create_task_in_session_rejects_active_task_and_updates_session(
+        self,
+    ) -> None:
+        coding_session, first_task = (
+            self.persistence.create_session_with_task(
+                title="持续修复项目",
+                original_prompt="先检查问题",
+                workspace="/workspace/first",
+            )
+        )
+        original_title = coding_session.title
+
+        self.assertTrue(
+            self.persistence.has_active_session_task(coding_session.id)
+        )
+        with self.assertRaises(InvalidStateTransitionError):
+            self.persistence.create_task_in_session(
+                coding_session.id,
+                original_prompt="不能并发创建",
+                workspace="/workspace/second",
+            )
+
+        self.persistence.start_task(first_task.id)
+        self.persistence.finish_task(
+            first_task.id,
+            AgentResult(status=TaskStatus.FAILED, error="等待用户修正"),
+        )
+        self.assertFalse(
+            self.persistence.has_active_session_task(coding_session.id)
+        )
+        before_follow_up = coding_session.updated_at
+
+        second_task = self.persistence.create_task_in_session(
+            coding_session.id,
+            original_prompt="继续修正",
+            workspace="/workspace/second",
+        )
+
+        self.db.refresh(coding_session)
+        self.assertEqual(coding_session.title, original_title)
+        self.assertGreater(
+            coding_session.updated_at.replace(tzinfo=None),
+            before_follow_up.replace(tzinfo=None),
+        )
+        self.assertEqual(second_task.status, TaskStatus.PENDING.value)
+        self.assertEqual(second_task.session_id, coding_session.id)
+        self.assertTrue(
+            self.persistence.has_active_session_task(coding_session.id)
+        )
+        session_tasks = self.persistence.load_session_tasks(coding_session.id)
+        self.assertEqual(
+            [task.id for task in session_tasks],
+            [first_task.id, second_task.id],
+        )
+        self.assertEqual(
+            self.persistence.get_latest_session_task(coding_session.id).id,
+            second_task.id,
+        )
+
+    def test_session_queries_use_stable_required_ordering(self) -> None:
+        older_session, older_task = (
+            self.persistence.create_session_with_task(
+                title="较早会话",
+                original_prompt="第一轮",
+                workspace="/workspace/older",
+            )
+        )
+        self.persistence.start_task(older_task.id)
+        self.persistence.finish_task(
+            older_task.id,
+            AgentResult(status=TaskStatus.FAILED, error="第一轮结束"),
+        )
+        newer_session, _ = self.persistence.create_session_with_task(
+            title="较新会话",
+            original_prompt="另一会话",
+            workspace="/workspace/newer",
+        )
+        base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        older_session.updated_at = base_time
+        newer_session.updated_at = base_time + timedelta(seconds=1)
+        self.db.commit()
+
+        self.assertEqual(
+            [session.id for session in self.persistence.list_sessions()],
+            [newer_session.id, older_session.id],
+        )
+
+    def test_session_queries_reject_missing_session(self) -> None:
+        for query in (
+            self.persistence.load_session_tasks,
+            self.persistence.get_latest_session_task,
+            self.persistence.has_active_session_task,
+        ):
+            with self.subTest(query=query.__name__):
+                with self.assertRaises(RecordNotFoundError):
+                    query("missing-session")
+
     def test_persist_complete_task_history_in_stable_order(self) -> None:
-        coding_session = self.persistence.create_session()
+        coding_session, task = self.persistence.create_session_with_task(
+            title="修复失败的测试",
+            original_prompt="修复失败的测试",
+            workspace="/workspace/demo",
+        )
         self.assertEqual(
             self.persistence.get_session(coding_session.id).id,
             coding_session.id,
         )
-
-        task = self.persistence.create_task(
-            session_id=coding_session.id,
-            original_prompt="修复失败的测试",
-            workspace="/workspace/demo",
-        )
+        self.assertEqual(coding_session.title, "修复失败的测试")
         self.assertEqual(task.status, TaskStatus.PENDING.value)
 
         self.persistence.start_task(task.id)
@@ -183,9 +337,8 @@ class PersistenceServiceTests(unittest.TestCase):
 
         for index, result in enumerate(terminal_results):
             with self.subTest(status=result.status):
-                coding_session = self.persistence.create_session()
-                task = self.persistence.create_task(
-                    coding_session.id,
+                _, task = self.persistence.create_session_with_task(
+                    title=f"任务 {index}",
                     original_prompt=f"任务 {index}",
                     workspace=f"/workspace/{index}",
                 )
@@ -400,9 +553,8 @@ class PersistenceServiceTests(unittest.TestCase):
         )
 
     def test_reject_invalid_lifecycle_transitions(self) -> None:
-        coding_session = self.persistence.create_session()
-        task = self.persistence.create_task(
-            coding_session.id,
+        _, task = self.persistence.create_session_with_task(
+            title="检查状态流转",
             original_prompt="检查状态流转",
             workspace="/workspace/demo",
         )
@@ -427,6 +579,16 @@ class PersistenceServiceTests(unittest.TestCase):
         self.persistence.finish_agent_step(step.id, AgentStepStatus.COMPLETED)
         with self.assertRaises(InvalidStateTransitionError):
             self.persistence.finish_agent_step(step.id, AgentStepStatus.COMPLETED)
+
+        completed_result = AgentResult(
+            TaskStatus.COMPLETED,
+            final_answer="状态已经进入终态",
+        )
+        self.persistence.finish_task(task.id, completed_result)
+        with self.assertRaises(InvalidStateTransitionError):
+            self.persistence.start_task(task.id)
+        with self.assertRaises(InvalidStateTransitionError):
+            self.persistence.finish_task(task.id, completed_result)
 
     def test_reject_mismatched_and_invalid_tool_results(self) -> None:
         task, step = self._create_running_task_with_step()
@@ -486,7 +648,7 @@ class PersistenceServiceTests(unittest.TestCase):
 
     def test_missing_records_raise_clear_errors(self) -> None:
         with self.assertRaises(RecordNotFoundError):
-            self.persistence.create_task(
+            self.persistence.create_task_in_session(
                 "missing-session",
                 original_prompt="任务",
                 workspace="/workspace/demo",
@@ -495,9 +657,8 @@ class PersistenceServiceTests(unittest.TestCase):
             self.persistence.load_messages("missing-task")
 
     def _create_running_task_with_step(self, prompt: str = "读取文件"):
-        coding_session = self.persistence.create_session()
-        task = self.persistence.create_task(
-            coding_session.id,
+        _, task = self.persistence.create_session_with_task(
+            title=prompt,
             original_prompt=prompt,
             workspace="/workspace/demo",
         )

@@ -9,7 +9,8 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.task_service import TaskPromptValidationError
+from app.api.conversation_service import ConversationNotFoundError
+from app.api.task_validation import TaskPromptValidationError
 from app.api.workspace import WorkspaceValidationError
 from app.application import ApplicationFactory, TaskRunner
 from app.db.persistence import PersistenceServiceError, RecordNotFoundError
@@ -65,6 +66,19 @@ def create_web_app(
             allow_headers=["Accept", "Content-Type"],
         )
     web_app.include_router(router)
+
+    @web_app.exception_handler(ConversationNotFoundError)
+    async def conversation_not_found_handler(
+        request: Request,
+        exc: ConversationNotFoundError,
+    ) -> JSONResponse:
+        del request, exc
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content=ErrorResponse(
+                detail="Session was not found"
+            ).model_dump(),
+        )
 
     @web_app.exception_handler(RecordNotFoundError)
     async def record_not_found_handler(

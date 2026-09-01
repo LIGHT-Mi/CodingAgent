@@ -1,4 +1,4 @@
-"""从 Task 原始需求和完整持久化历史构造模型上下文。"""
+"""从 Session 会话历史和当前 Task 执行历史构造模型上下文。"""
 
 from __future__ import annotations
 
@@ -13,10 +13,15 @@ from app.agent.contracts import (
     RuntimeEventType,
     TaskStatus,
 )
-from app.context.contracts import ContextLimits, InteractionBlock
+from app.context.contracts import (
+    ContextLimits,
+    ConversationTurnBlock,
+    InteractionBlock,
+)
 from app.context.counting import ContextCharacterCounter
 from app.context.truncation import ToolResultTruncator
 from app.db.models.message import Message
+from app.db.models.task import Task
 from app.db.models.tool_call import ToolCall
 from app.db.persistence import PersistenceService
 from app.llm.contracts import (
@@ -37,6 +42,10 @@ CODING_AGENT_SYSTEM_PROMPT = (
     "成功后必须再次使用 read_file 验证实际内容，并使用 run_command 运行相关测试、"
     "构建或项目验证。命令的非零 exit code、timeout 和拒绝结果都是需要分析的 "
     "Observation，不等于任务失败；工具返回错误时，根据 Observation 修正后续调用。"
+    "历史 Assistant 最终回答只是会话摘要，不是新的工具证据；可以"
+    "基于摘要中明确写出的结论继续对话，但不得从摘要推导或补写其中未明确出现的文件"
+    "名、路径、函数、类、配置、测试或命令结果。凡要提出这类新的 Workspace 事实，"
+    "必须先调用工具重新验证；不得根据常见项目结构或命名习惯猜测。"
     "当前仍不能删除文件。信息充分且修改已经验证后再返回最终答案，不得声称未验证"
     "的修改已经成功，也不得声称未实际执行的命令已经成功。"
 )
@@ -57,8 +66,15 @@ class ContextHistoryError(ContextManagerError):
 ContextBuildResult: TypeAlias = LLMContext | RuntimeEvent
 
 
+FAILED_TASK_SUMMARY_PREFIX = "上一轮任务执行失败："
+FAILED_TASK_SUMMARY_FALLBACK = "未提供错误详情"
+CANCELLED_TASK_SUMMARY = "上一轮任务已被用户取消"
+TERMINATED_TASK_SUMMARY_PREFIX = "上一轮任务已终止："
+TERMINATED_TASK_SUMMARY_FALLBACK = "未提供终止原因"
+
+
 class ContextManager:
-    """校验完整历史并构造受字符限制的模型上下文。"""
+    """校验会话与当前任务历史并构造受字符限制的模型上下文。"""
 
     def __init__(
         self,
@@ -75,12 +91,17 @@ class ContextManager:
         self._character_counter = ContextCharacterCounter()
 
     def build(self, task_id: str) -> ContextBuildResult:
-        """恢复完整历史并按最旧 Block 优先应用字符预算。"""
+        """恢复会话轮次和当前任务交互，并按两级 Block 应用字符预算。"""
 
         task = self._persistence.get_task(task_id)
         if task is None:
             raise ContextTaskNotFoundError(f"Task {task_id} was not found")
 
+        session_tasks = self._persistence.load_session_tasks(task.session_id)
+        conversation_blocks = _restore_conversation_turn_blocks(
+            task,
+            session_tasks,
+        )
         stored_messages = self._persistence.load_messages(task_id)
         stored_tool_calls = self._persistence.load_tool_calls(task_id)
         _validate_final_message_history(task.status, stored_messages)
@@ -98,6 +119,7 @@ class ContextManager:
         )
         return _apply_sliding_window(
             base_messages,
+            conversation_blocks,
             blocks,
             self._character_counter,
             self._max_context_characters,
@@ -106,56 +128,181 @@ class ContextManager:
 
 def _apply_sliding_window(
     base_messages: tuple[LLMMessage, LLMMessage],
-    blocks: tuple[InteractionBlock, ...],
+    conversation_blocks: tuple[ConversationTurnBlock, ...],
+    interaction_blocks: tuple[InteractionBlock, ...],
     character_counter: ContextCharacterCounter,
     max_context_characters: int,
 ) -> ContextBuildResult:
-    remaining_blocks = blocks
+    remaining_conversation_blocks = conversation_blocks
+    remaining_interaction_blocks = interaction_blocks
 
     while True:
-        candidate = _assemble_context(base_messages, remaining_blocks)
+        candidate = _assemble_context(
+            base_messages,
+            remaining_conversation_blocks,
+            remaining_interaction_blocks,
+        )
         candidate_characters = character_counter.count(candidate)
         if candidate_characters <= max_context_characters:
             return candidate
-        if remaining_blocks:
-            remaining_blocks = remaining_blocks[1:]
+        if remaining_conversation_blocks:
+            remaining_conversation_blocks = remaining_conversation_blocks[1:]
+            continue
+        if remaining_interaction_blocks:
+            remaining_interaction_blocks = remaining_interaction_blocks[1:]
             continue
 
         return _build_context_overflow_event(
             max_context_characters=max_context_characters,
             required_characters=candidate_characters,
+            conversation_turn_block_count=len(
+                remaining_conversation_blocks
+            ),
+            interaction_block_count=len(remaining_interaction_blocks),
         )
 
 
 def _assemble_context(
     base_messages: tuple[LLMMessage, LLMMessage],
-    blocks: tuple[InteractionBlock, ...],
+    conversation_blocks: tuple[ConversationTurnBlock, ...],
+    interaction_blocks: tuple[InteractionBlock, ...],
 ) -> LLMContext:
-    history = tuple(
+    conversation_history = tuple(
         message
-        for block in blocks
+        for block in conversation_blocks
         for message in block.messages
     )
-    return LLMContext(messages=(*base_messages, *history))
+    interaction_history = tuple(
+        message
+        for block in interaction_blocks
+        for message in block.messages
+    )
+    return LLMContext(
+        messages=(
+            base_messages[0],
+            *conversation_history,
+            base_messages[1],
+            *interaction_history,
+        )
+    )
 
 
 def _build_context_overflow_event(
     *,
     max_context_characters: int,
     required_characters: int,
+    conversation_turn_block_count: int,
+    interaction_block_count: int,
 ) -> RuntimeEvent:
     return RuntimeEvent(
         event_type=RuntimeEventType.CONTEXT_OVERFLOW,
         source="context_manager",
         message=(
-            "System Prompt and Original Task exceed the context character budget"
+            "System Prompt and Current Task exceed the context character budget"
         ),
         details={
             "max_context_characters": max_context_characters,
             "required_characters": required_characters,
-            "history_block_count": 0,
+            "conversation_turn_block_count": conversation_turn_block_count,
+            "interaction_block_count": interaction_block_count,
         },
     )
+
+
+def _restore_conversation_turn_blocks(
+    current_task: Task,
+    session_tasks: list[Task],
+) -> tuple[ConversationTurnBlock, ...]:
+    mismatched_tasks = [
+        task.id
+        for task in session_tasks
+        if task.session_id != current_task.session_id
+    ]
+    if mismatched_tasks:
+        raise ContextHistoryError(
+            f"Session history for current Task {current_task.id} contains "
+            f"Tasks from another Session: {', '.join(mismatched_tasks)}"
+        )
+
+    current_indexes = [
+        index
+        for index, task in enumerate(session_tasks)
+        if task.id == current_task.id
+    ]
+    if len(current_indexes) != 1:
+        raise ContextHistoryError(
+            f"current Task {current_task.id} does not appear exactly once in "
+            "its Session history"
+        )
+    current_index = current_indexes[0]
+    if current_index != len(session_tasks) - 1:
+        raise ContextHistoryError(
+            f"current Task {current_task.id} is not the latest Task in its Session"
+        )
+
+    blocks: list[ConversationTurnBlock] = []
+    for historical_task in session_tasks[:current_index]:
+        assistant_content = _historical_task_assistant_content(
+            historical_task
+        )
+        try:
+            blocks.append(
+                ConversationTurnBlock(
+                    messages=(
+                        LLMMessage(
+                            role=LLMMessageRole.USER,
+                            content=historical_task.original_prompt,
+                        ),
+                        LLMMessage(
+                            role=LLMMessageRole.ASSISTANT,
+                            content=assistant_content,
+                        ),
+                    )
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise ContextHistoryError(
+                f"historical Task {historical_task.id} cannot form a "
+                f"ConversationTurnBlock: {exc}"
+            ) from exc
+    return tuple(blocks)
+
+
+def _historical_task_assistant_content(task: Task) -> str:
+    try:
+        status = TaskStatus(task.status)
+    except ValueError as exc:
+        raise ContextHistoryError(
+            f"historical Task {task.id} has unsupported status: {task.status}"
+        ) from exc
+
+    if status is TaskStatus.COMPLETED:
+        if not isinstance(task.final_answer, str) or not task.final_answer.strip():
+            raise ContextHistoryError(
+                f"completed historical Task {task.id} has no final_answer"
+            )
+        return task.final_answer
+    if status is TaskStatus.FAILED:
+        return FAILED_TASK_SUMMARY_PREFIX + _public_task_detail(
+            task.error,
+            FAILED_TASK_SUMMARY_FALLBACK,
+        )
+    if status is TaskStatus.CANCELLED:
+        return CANCELLED_TASK_SUMMARY
+    if status is TaskStatus.TERMINATED:
+        return TERMINATED_TASK_SUMMARY_PREFIX + _public_task_detail(
+            task.termination_reason,
+            TERMINATED_TASK_SUMMARY_FALLBACK,
+        )
+    raise ContextHistoryError(
+        f"historical Task {task.id} is not terminal: {status.value}"
+    )
+
+
+def _public_task_detail(value: str | None, fallback: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    return value.strip()
 
 
 def _restore_interaction_blocks(

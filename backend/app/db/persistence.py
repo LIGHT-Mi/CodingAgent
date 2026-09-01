@@ -23,7 +23,10 @@ from app.agent.contracts import (
 )
 from app.db.models.agent_step import AgentStep
 from app.db.models.message import Message
-from app.db.models.session_record import CodingSession
+from app.db.models.session_record import (
+    SESSION_TITLE_MAX_LENGTH,
+    CodingSession,
+)
 from app.db.models.task import Task
 from app.db.models.tool_call import ToolCall
 
@@ -56,14 +59,33 @@ class PersistenceService:
             raise TypeError("db must be a sqlalchemy.orm.Session")
         self._db = db
 
-    def create_session(self) -> CodingSession:
-        """创建并持久化一个新的用户工作会话。"""
+    def create_session_with_task(
+        self,
+        title: str,
+        original_prompt: str,
+        workspace: str,
+    ) -> tuple[CodingSession, Task]:
+        """在同一事务中创建 Session 及其第一个 PENDING Task。"""
 
-        with self._write_transaction("create session"):
-            coding_session = CodingSession()
-            self._db.add(coding_session)
+        _require_non_blank(title, "title")
+        if len(title) > SESSION_TITLE_MAX_LENGTH:
+            raise PersistenceValidationError(
+                f"title must not exceed {SESSION_TITLE_MAX_LENGTH} characters"
+            )
+        _require_non_blank(original_prompt, "original_prompt")
+        _require_non_blank(workspace, "workspace")
+
+        with self._write_transaction("create session with first task"):
+            coding_session = CodingSession(title=title)
+            task = Task(
+                session=coding_session,
+                original_prompt=original_prompt,
+                workspace=workspace,
+                status=TaskStatus.PENDING.value,
+            )
+            self._db.add_all((coding_session, task))
             self._db.flush()
-        return coding_session
+        return coding_session, task
 
     def get_session(self, session_id: str) -> CodingSession | None:
         """按 ID 查询用户工作会话，不存在时返回 None。"""
@@ -71,22 +93,59 @@ class PersistenceService:
         _require_non_blank(session_id, "session_id")
         return self._read_one(CodingSession, session_id, "load session")
 
-    def create_task(
+    def list_sessions(self) -> list[CodingSession]:
+        """按最近更新时间从新到旧加载全部 Session。"""
+
+        return self._read_many(
+            select(CodingSession).order_by(
+                CodingSession.updated_at.desc(),
+                CodingSession.id.asc(),
+            ),
+            "list sessions",
+        )
+
+    def create_task_in_session(
         self,
         session_id: str,
         original_prompt: str,
         workspace: str,
     ) -> Task:
-        """在已有会话中创建状态为 PENDING 的任务。"""
+        """锁定已有 Session，并在没有活动 Task 时创建下一轮 Task。"""
 
         _require_non_blank(session_id, "session_id")
         _require_non_blank(original_prompt, "original_prompt")
         _require_non_blank(workspace, "workspace")
 
-        with self._write_transaction("create task"):
-            coding_session = self._require_session(session_id)
+        with self._write_transaction("create task in session"):
+            coding_session = self._db.scalar(
+                select(CodingSession)
+                .where(CodingSession.id == session_id)
+                .with_for_update()
+            )
+            if coding_session is None:
+                raise RecordNotFoundError(
+                    f"Session {session_id} was not found"
+                )
+            active_task_id = self._db.scalar(
+                select(Task.id)
+                .where(
+                    Task.session_id == session_id,
+                    Task.status.in_(
+                        (
+                            TaskStatus.PENDING.value,
+                            TaskStatus.RUNNING.value,
+                        )
+                    ),
+                )
+                .limit(1)
+            )
+            if active_task_id is not None:
+                raise InvalidStateTransitionError(
+                    f"Session {session_id} already has an active Task "
+                    f"{active_task_id}"
+                )
             task = Task(
-                session_id=coding_session.id,
+                session=coding_session,
                 original_prompt=original_prompt,
                 workspace=workspace,
                 status=TaskStatus.PENDING.value,
@@ -95,6 +154,60 @@ class PersistenceService:
             self._db.add(task)
             self._db.flush()
         return task
+
+    def load_session_tasks(self, session_id: str) -> list[Task]:
+        """按创建时间从旧到新加载 Session 的全部 Task。"""
+
+        _require_non_blank(session_id, "session_id")
+        self._require_session_for_read(session_id)
+        return self._read_many(
+            select(Task)
+            .where(Task.session_id == session_id)
+            .order_by(Task.created_at.asc(), Task.id.asc()),
+            "load session tasks",
+        )
+
+    def get_latest_session_task(self, session_id: str) -> Task | None:
+        """返回 Session 最近创建的 Task；无 Task 时返回 None。"""
+
+        _require_non_blank(session_id, "session_id")
+        self._require_session_for_read(session_id)
+        try:
+            return self._db.scalar(
+                select(Task)
+                .where(Task.session_id == session_id)
+                .order_by(Task.created_at.desc(), Task.id.desc())
+                .limit(1)
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceServiceError(
+                "load latest session task failed"
+            ) from exc
+
+    def has_active_session_task(self, session_id: str) -> bool:
+        """判断 Session 是否包含 PENDING 或 RUNNING Task。"""
+
+        _require_non_blank(session_id, "session_id")
+        self._require_session_for_read(session_id)
+        try:
+            active_task_id = self._db.scalar(
+                select(Task.id)
+                .where(
+                    Task.session_id == session_id,
+                    Task.status.in_(
+                        (
+                            TaskStatus.PENDING.value,
+                            TaskStatus.RUNNING.value,
+                        )
+                    ),
+                )
+                .limit(1)
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceServiceError(
+                "check active session task failed"
+            ) from exc
+        return active_task_id is not None
 
     def get_task(self, task_id: str) -> Task | None:
         """按 ID 查询任务，不存在时返回 None。"""
@@ -117,6 +230,26 @@ class PersistenceService:
             now = _utc_now()
             task.status = TaskStatus.RUNNING.value
             task.started_at = now
+            task.session.updated_at = now
+        return task
+
+    def fail_pending_task(self, task_id: str, error: str) -> Task:
+        """将后台提交失败的 PENDING Task 直接闭合为 FAILED。"""
+
+        _require_non_blank(task_id, "task_id")
+        _require_non_blank(error, "error")
+        with self._write_transaction("fail pending task"):
+            task = self._require_task(task_id)
+            self._require_status(
+                "Task",
+                task.id,
+                task.status,
+                TaskStatus.PENDING.value,
+            )
+            now = _utc_now()
+            task.status = TaskStatus.FAILED.value
+            task.error = error
+            task.finished_at = now
             task.session.updated_at = now
         return task
 
@@ -604,6 +737,12 @@ class PersistenceService:
             self._require_task(task_id)
         except SQLAlchemyError as exc:
             raise PersistenceServiceError("load task failed") from exc
+
+    def _require_session_for_read(self, session_id: str) -> None:
+        try:
+            self._require_session(session_id)
+        except SQLAlchemyError as exc:
+            raise PersistenceServiceError("load session failed") from exc
 
     def _read_one(self, model: type, record_id: str, operation: str):
         try:

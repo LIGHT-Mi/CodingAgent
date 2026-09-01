@@ -104,10 +104,11 @@ class LLMMessage:
 class LLMContext:
     """上下文管理与模型调用之间传递的模型上下文。
 
-    固定以 System Prompt、Task 原始 User Prompt 开头，后面包含 ContextManager
-    在字符预算内保留的完整 Assistant / Tool Interaction Blocks。过长 Tool Result
-    已在构造阶段保留首尾并截断；历史按完整 Block 应用滑动窗口。若基础消息本身
-    超出预算，ContextManager 返回 RuntimeEvent，而不会构造本对象。
+    固定以 System Prompt 开头，随后可以包含历史 Session 的 USER/ASSISTANT
+    Conversation Turn、当前 Task 的 USER Prompt，以及当前 Task 内完整的
+    Assistant/Tool Interaction Blocks。过长 Tool Result 已在构造阶段保留首尾并
+    截断；历史按完整 Block 应用滑动窗口。若不可删除的消息本身超出预算，
+    ContextManager 返回 RuntimeEvent，而不会构造本对象。
     """
 
     messages: tuple[LLMMessage, ...]
@@ -118,20 +119,33 @@ class LLMContext:
             raise ValueError("LLMContext must contain at least two messages")
         if any(not isinstance(message, LLMMessage) for message in messages):
             raise TypeError("messages must contain only LLMMessage values")
-        expected_roles = (LLMMessageRole.SYSTEM, LLMMessageRole.USER)
-        actual_roles = tuple(message.role for message in messages[:2])
-        if actual_roles != expected_roles:
+        if messages[0].role is not LLMMessageRole.SYSTEM:
             raise ValueError(
-                "LLMContext must start with messages ordered as SYSTEM, USER"
+                "LLMContext must start with a SYSTEM message"
             )
         if any(
-            message.role in {LLMMessageRole.SYSTEM, LLMMessageRole.USER}
-            for message in messages[2:]
+            message.role is LLMMessageRole.SYSTEM
+            for message in messages[1:]
         ):
             raise ValueError(
-                "LLMContext history can contain only ASSISTANT and TOOL messages"
+                "LLMContext can contain only one leading SYSTEM message"
             )
-        _validate_tool_call_history(messages[2:])
+        if messages[1].role is not LLMMessageRole.USER:
+            raise ValueError(
+                "the first message after SYSTEM must be a USER message"
+            )
+        for index, message in enumerate(messages[2:], start=2):
+            if message.role is not LLMMessageRole.USER:
+                continue
+            previous = messages[index - 1]
+            if (
+                previous.role is not LLMMessageRole.ASSISTANT
+                or previous.tool_calls
+            ):
+                raise ValueError(
+                    "a later USER message must follow a plain ASSISTANT message"
+                )
+        _validate_tool_call_history(messages[1:])
         object.__setattr__(self, "messages", messages)
 
 
@@ -307,6 +321,8 @@ def _validate_tool_call_history(messages: tuple[LLMMessage, ...]) -> None:
     answered_call_ids: set[str] = set()
 
     for message in messages:
+        if message.role is LLMMessageRole.USER:
+            continue
         if message.role is LLMMessageRole.ASSISTANT:
             for call in message.tool_calls:
                 if call.tool_call_id in requested_call_ids:

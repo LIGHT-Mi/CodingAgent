@@ -13,6 +13,9 @@ if TYPE_CHECKING:
     from app.db.models.task import Task
 
 
+SESSION_TITLE_MAX_LENGTH = 128
+
+
 def new_id() -> str:
     return str(uuid4())
 
@@ -31,6 +34,11 @@ class CodingSession(Base):
         primary_key=True,
         default=new_id,
         comment="Session 唯一 ID。",
+    )
+    title: Mapped[str] = mapped_column(
+        String(SESSION_TITLE_MAX_LENGTH),
+        nullable=False,
+        comment="根据第一条 Task Prompt 确定性生成的持久化会话标题。",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -1,0 +1,1318 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>编程智能体 · 前端多轮会话设计稿</title>
+    <style>
+      :root {
+        --blue-700: #1d4ed8;
+        --blue-600: #2563eb;
+        --blue-500: #3b82f6;
+        --blue-100: #dbeafe;
+        --blue-50: #eff6ff;
+        --ink: #172033;
+        --ink-soft: #40516d;
+        --muted: #718097;
+        --line: #dce5f2;
+        --surface: #ffffff;
+        --surface-soft: #f7f9fc;
+        --page: #edf3fb;
+        --green: #16835b;
+        --green-soft: #e9f8f1;
+        --red: #bd3d4c;
+        --red-soft: #fff0f2;
+        --orange: #b76516;
+        --orange-soft: #fff5e9;
+        --shadow: 0 28px 80px rgb(33 62 110 / 14%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 10% 0%, rgb(37 99 235 / 12%), transparent 28%),
+          linear-gradient(180deg, #f8fbff, var(--page));
+        font-family:
+          Inter, "SF Pro Display", "PingFang SC", "Microsoft YaHei", system-ui,
+          sans-serif;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      .document-header {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 56px 32px 34px;
+      }
+
+      .document-kicker {
+        margin: 0 0 13px;
+        color: var(--blue-600);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .document-header h1 {
+        max-width: 900px;
+        margin: 0;
+        font-size: clamp(36px, 6vw, 66px);
+        letter-spacing: -0.055em;
+        line-height: 1.02;
+      }
+
+      .document-header > p:last-of-type {
+        max-width: 820px;
+        margin: 22px 0 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.8;
+      }
+
+      .document-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 28px;
+      }
+
+      .document-nav a {
+        padding: 9px 13px;
+        border: 1px solid #ccdaee;
+        border-radius: 999px;
+        color: #365274;
+        background: rgb(255 255 255 / 75%);
+        font-size: 12px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .document-nav a:hover {
+        border-color: var(--blue-500);
+        color: var(--blue-600);
+      }
+
+      .semantics {
+        display: grid;
+        max-width: 1336px;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin: 0 auto 46px;
+        padding: 0 32px;
+      }
+
+      .semantic-card {
+        padding: 18px 19px;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        background: rgb(255 255 255 / 72%);
+      }
+
+      .semantic-card span {
+        color: var(--blue-600);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .semantic-card strong {
+        display: block;
+        margin-top: 7px;
+        font-size: 14px;
+      }
+
+      .semantic-card p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .design-section {
+        margin-bottom: 70px;
+      }
+
+      .design-heading {
+        display: flex;
+        max-width: 1400px;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        margin: 0 auto;
+        padding: 0 32px 17px;
+      }
+
+      .design-heading small {
+        color: var(--blue-600);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .design-heading h2 {
+        margin: 5px 0 0;
+        font-size: 25px;
+        letter-spacing: -0.035em;
+      }
+
+      .design-heading p {
+        max-width: 610px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.65;
+        text-align: right;
+      }
+
+      .design-scroll {
+        overflow-x: auto;
+        padding: 0 32px 30px;
+      }
+
+      .screen {
+        display: grid;
+        width: 1336px;
+        height: 780px;
+        grid-template-columns: 244px minmax(0, 1fr) 346px;
+        margin: 0 auto;
+        overflow: hidden;
+        border: 1px solid #cdd9eb;
+        border-radius: 22px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .sidebar,
+      .inspector {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        background: var(--surface-soft);
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line);
+      }
+
+      .inspector {
+        border-left: 1px solid var(--line);
+      }
+
+      .sidebar-header,
+      .chat-header,
+      .inspector-header {
+        display: flex;
+        height: 66px;
+        flex: 0 0 auto;
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .sidebar-header,
+      .inspector-header {
+        padding: 0 16px;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .logo-mark {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border-radius: 9px;
+        color: white;
+        background: var(--blue-600);
+        box-shadow: 0 8px 18px rgb(37 99 235 / 24%);
+        font-size: 12px;
+      }
+
+      .icon-button {
+        display: grid;
+        width: 32px;
+        height: 32px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        color: #58708f;
+        background: var(--surface);
+        font-size: 13px;
+      }
+
+      .sidebar-header .icon-button {
+        margin-left: auto;
+      }
+
+      .new-chat {
+        display: flex;
+        height: 42px;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 10px;
+        margin: 15px 13px 10px;
+        padding: 0 13px;
+        border: 1px solid #cbdaf0;
+        border-radius: 11px;
+        color: #27476d;
+        background: var(--surface);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .new-chat.active {
+        border-color: #a9c7f5;
+        color: var(--blue-700);
+        background: var(--blue-50);
+      }
+
+      .new-chat b {
+        display: grid;
+        width: 20px;
+        height: 20px;
+        place-items: center;
+        border-radius: 6px;
+        color: white;
+        background: var(--blue-600);
+        font-size: 15px;
+        font-weight: 500;
+      }
+
+      .list-caption {
+        margin: 9px 17px 7px;
+        color: #9aa8bb;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .conversation-list {
+        display: flex;
+        min-height: 0;
+        flex: 1;
+        flex-direction: column;
+        gap: 4px;
+        padding: 0 8px;
+        overflow: hidden;
+      }
+
+      .conversation-item {
+        position: relative;
+        padding: 11px 12px;
+        border: 1px solid transparent;
+        border-radius: 10px;
+      }
+
+      .conversation-item.selected {
+        border-color: #d4e2f5;
+        background: #eaf2ff;
+      }
+
+      .conversation-item strong {
+        display: block;
+        overflow: hidden;
+        color: #31435f;
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .conversation-item p {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 6px 0 0;
+        color: #8795a9;
+        font-size: 9px;
+      }
+
+      .tiny-dot,
+      .status-dot {
+        display: inline-block;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: #9aabbe;
+      }
+
+      .tiny-dot {
+        width: 5px;
+        height: 5px;
+      }
+
+      .tiny-dot.running,
+      .status-dot.running {
+        background: var(--blue-500);
+        box-shadow: 0 0 0 3px rgb(59 130 246 / 12%);
+      }
+
+      .tiny-dot.completed,
+      .status-dot.completed {
+        background: var(--green);
+      }
+
+      .sidebar-footer {
+        margin: 10px 13px 14px;
+        padding: 10px 11px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        color: #718097;
+        background: var(--surface);
+        font-size: 9px;
+        line-height: 1.55;
+      }
+
+      .chat {
+        display: grid;
+        min-width: 0;
+        grid-template-rows: 66px minmax(0, 1fr) auto;
+        background: var(--surface);
+      }
+
+      .chat-header {
+        padding: 0 21px;
+        gap: 12px;
+      }
+
+      .chat-title {
+        min-width: 0;
+      }
+
+      .chat-title strong {
+        display: block;
+        overflow: hidden;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .chat-title span {
+        display: block;
+        margin-top: 3px;
+        color: #8a98aa;
+        font-size: 9px;
+      }
+
+      .chat-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 9px;
+        border-radius: 999px;
+        color: #476282;
+        background: #eef3f9;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+      }
+
+      .status-chip.running {
+        color: var(--blue-700);
+        background: var(--blue-50);
+      }
+
+      .status-chip.completed {
+        color: var(--green);
+        background: var(--green-soft);
+      }
+
+      .chat-body {
+        min-height: 0;
+        overflow: hidden;
+        background:
+          linear-gradient(180deg, rgb(247 250 255 / 70%), transparent 90px),
+          var(--surface);
+      }
+
+      .empty-chat {
+        display: grid;
+        height: 100%;
+        place-content: center;
+        padding: 40px;
+        text-align: center;
+      }
+
+      .empty-symbol {
+        display: grid;
+        width: 56px;
+        height: 56px;
+        place-items: center;
+        margin: 0 auto 18px;
+        border: 1px solid #cfe0f8;
+        border-radius: 18px;
+        color: var(--blue-600);
+        background: var(--blue-50);
+        box-shadow: 0 16px 30px rgb(37 99 235 / 10%);
+        font-size: 19px;
+      }
+
+      .empty-chat h3 {
+        margin: 0;
+        font-size: 21px;
+        letter-spacing: -0.035em;
+      }
+
+      .empty-chat p {
+        max-width: 410px;
+        margin: 11px auto 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.75;
+      }
+
+      .conversation-feed {
+        display: flex;
+        height: 100%;
+        flex-direction: column;
+        gap: 22px;
+        padding: 28px 50px 34px;
+        overflow: hidden;
+      }
+
+      .turn {
+        display: flex;
+        width: 100%;
+        gap: 11px;
+      }
+
+      .turn.user {
+        justify-content: flex-end;
+      }
+
+      .avatar {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 9px;
+        color: white;
+        background: var(--blue-600);
+        font-size: 9px;
+        font-weight: 800;
+      }
+
+      .avatar.user-avatar {
+        order: 2;
+        color: #445975;
+        background: #e9eef5;
+      }
+
+      .message {
+        max-width: 76%;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 5px 15px 15px;
+        color: #34455f;
+        background: #fbfcfe;
+        font-size: 11px;
+        line-height: 1.65;
+      }
+
+      .user .message {
+        border-color: #cfe0f8;
+        border-radius: 15px 5px 15px 15px;
+        color: #27496f;
+        background: var(--blue-50);
+      }
+
+      .message p {
+        margin: 0;
+      }
+
+      .message-meta {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 9px;
+        color: #8391a4;
+        font-size: 9px;
+      }
+
+      .activity-summary {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        padding-top: 9px;
+        border-top: 1px solid #e4ebf5;
+        color: var(--blue-600);
+        font-size: 9px;
+        font-weight: 750;
+      }
+
+      .activity-pulse {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--blue-500);
+        box-shadow: 0 0 0 4px rgb(59 130 246 / 12%);
+      }
+
+      .task-cluster {
+        padding: 5px;
+        border: 1px solid transparent;
+        border-radius: 16px;
+      }
+
+      .task-cluster.selected {
+        border-color: #bcd4f7;
+        background: rgb(239 246 255 / 58%);
+        box-shadow: 0 0 0 3px rgb(37 99 235 / 5%);
+      }
+
+      .task-select-note {
+        margin: 0 0 8px 40px;
+        color: var(--blue-600);
+        font-size: 8px;
+        font-weight: 800;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .composer-wrap {
+        padding: 0 34px 23px;
+        background: linear-gradient(180deg, transparent, white 22%);
+      }
+
+      .composer {
+        overflow: hidden;
+        border: 1px solid #cfdced;
+        border-radius: 16px;
+        background: var(--surface);
+        box-shadow: 0 14px 36px rgb(29 61 107 / 10%);
+      }
+
+      .workspace-bar {
+        display: flex;
+        height: 38px;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px;
+        border-bottom: 1px solid #e3eaf4;
+        color: #61748f;
+        background: #f8faff;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 8px;
+      }
+
+      .folder-mark {
+        color: var(--blue-600);
+        font-family: system-ui, sans-serif;
+        font-size: 11px;
+      }
+
+      .workspace-bar .workspace-value {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .workspace-action {
+        margin-left: auto;
+        color: var(--blue-600);
+        font-family: system-ui, sans-serif;
+        font-size: 9px;
+        font-weight: 750;
+      }
+
+      .composer.disabled {
+        opacity: 0.78;
+      }
+
+      .composer-input {
+        display: flex;
+        min-height: 76px;
+        align-items: flex-end;
+        gap: 12px;
+        padding: 12px;
+      }
+
+      .composer-input p {
+        flex: 1;
+        align-self: flex-start;
+        margin: 3px 0 0;
+        color: #9aa7b8;
+        font-size: 11px;
+      }
+
+      .send-button,
+      .cancel-button {
+        min-width: 38px;
+        height: 34px;
+        border: 0;
+        border-radius: 10px;
+        color: white;
+        background: var(--blue-600);
+        font-size: 10px;
+        font-weight: 750;
+      }
+
+      .cancel-button {
+        min-width: 94px;
+        color: var(--red);
+        background: var(--red-soft);
+      }
+
+      .inspector-header {
+        gap: 10px;
+      }
+
+      .inspector-header strong {
+        font-size: 12px;
+      }
+
+      .inspector-header .icon-button {
+        margin-left: auto;
+      }
+
+      .inspector-content {
+        min-height: 0;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      .inspector-empty {
+        display: grid;
+        height: 100%;
+        place-content: center;
+        padding: 34px;
+        text-align: center;
+      }
+
+      .inspector-empty .empty-symbol {
+        width: 48px;
+        height: 48px;
+        margin-bottom: 14px;
+        font-size: 15px;
+      }
+
+      .inspector-empty strong {
+        font-size: 13px;
+      }
+
+      .inspector-empty p {
+        max-width: 220px;
+        margin: 8px auto 0;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.65;
+      }
+
+      .task-overview {
+        padding: 15px 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .task-overview-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .task-overview small {
+        color: #8b99ac;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 8px;
+      }
+
+      .task-overview h3 {
+        margin: 8px 0 0;
+        font-size: 14px;
+        letter-spacing: -0.02em;
+      }
+
+      .timeline {
+        position: relative;
+        padding: 18px 16px 20px 28px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface-soft);
+      }
+
+      .timeline::before {
+        position: absolute;
+        top: 24px;
+        bottom: 26px;
+        left: 18px;
+        width: 1px;
+        background: #cad8eb;
+        content: "";
+      }
+
+      .step-card {
+        position: relative;
+        margin-bottom: 14px;
+        padding: 11px 11px 10px;
+        border: 1px solid #d8e2ef;
+        border-radius: 11px;
+        background: var(--surface);
+      }
+
+      .step-card:last-child {
+        margin-bottom: 0;
+      }
+
+      .step-card::before {
+        position: absolute;
+        top: 15px;
+        left: -16px;
+        width: 7px;
+        height: 7px;
+        border: 2px solid var(--surface-soft);
+        border-radius: 50%;
+        background: #9badc2;
+        content: "";
+      }
+
+      .step-card.running::before {
+        background: var(--blue-500);
+        box-shadow: 0 0 0 3px rgb(59 130 246 / 12%);
+      }
+
+      .step-card.completed::before {
+        background: var(--green);
+      }
+
+      .step-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .step-title strong {
+        font-size: 10px;
+      }
+
+      .step-title span {
+        color: #8a99ac;
+        font-size: 8px;
+        font-weight: 800;
+      }
+
+      .step-title .running-text {
+        color: var(--blue-600);
+      }
+
+      .step-title .completed-text {
+        color: var(--green);
+      }
+
+      .tool-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 7px;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid #e8edf5;
+      }
+
+      .tool-icon {
+        display: grid;
+        width: 18px;
+        height: 18px;
+        place-items: center;
+        border-radius: 5px;
+        color: #4d6c93;
+        background: #eef3f9;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 7px;
+        font-weight: 800;
+      }
+
+      .tool-row strong {
+        display: block;
+        overflow: hidden;
+        color: #425570;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 8px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tool-row small {
+        color: #8c9aab;
+        font-size: 7px;
+      }
+
+      .tool-state {
+        font-size: 7px;
+        font-weight: 800;
+      }
+
+      .tool-state.completed {
+        color: var(--green);
+      }
+
+      .tool-state.running {
+        color: var(--blue-600);
+      }
+
+      .tool-state.error {
+        color: var(--orange);
+      }
+
+      .task-details {
+        padding: 15px 16px;
+        background: var(--surface);
+      }
+
+      .task-details h4 {
+        margin: 0 0 12px;
+        font-size: 10px;
+      }
+
+      .details-grid {
+        display: grid;
+        grid-template-columns: 76px minmax(0, 1fr);
+        gap: 9px 10px;
+        margin: 0;
+      }
+
+      .details-grid dt {
+        color: #8b99ab;
+        font-size: 8px;
+      }
+
+      .details-grid dd {
+        min-width: 0;
+        margin: 0;
+        overflow: hidden;
+        color: #4b5e79;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 8px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .design-footer {
+        max-width: 1336px;
+        margin: 0 auto 70px;
+        padding: 22px 26px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        color: var(--muted);
+        background: rgb(255 255 255 / 78%);
+        font-size: 12px;
+        line-height: 1.75;
+      }
+
+      .design-footer strong {
+        color: var(--ink-soft);
+      }
+
+      @media (max-width: 780px) {
+        .document-header {
+          padding-top: 36px;
+        }
+
+        .semantics {
+          grid-template-columns: 1fr;
+        }
+
+        .design-heading {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .design-heading p {
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="document-header">
+      <p class="document-kicker">Coding Agent · UX baseline · Step 10.5</p>
+      <h1>多轮会话三栏工作台设计稿</h1>
+      <p>
+        本文件固定空白会话、Task 运行中以及多轮历史查看三种关键状态。所有控件均为静态设计表达，不包含 API、轮询、折叠或提交逻辑。
+      </p>
+      <nav class="document-nav" aria-label="设计稿导航">
+        <a href="#new-conversation">01 空白新会话</a>
+        <a href="#task-running">02 Task 运行中</a>
+        <a href="#conversation-history">03 多轮完成与历史查看</a>
+      </nav>
+    </header>
+
+    <section class="semantics" aria-label="核心产品语义">
+      <article class="semantic-card">
+        <span>SESSION</span>
+        <strong>左侧一条会话</strong>
+        <p>第一条消息发送后，在同一事务创建 Session.title 和 Task 0；API 直接返回持久化标题。</p>
+      </article>
+      <article class="semantic-card">
+        <span>TASK</span>
+        <strong>中间一轮对话</strong>
+        <p>终态 Task 永不复活；继续对话是在同一 Session 创建新的 PENDING Task，运行期间输入框禁用。</p>
+      </article>
+      <article class="semantic-card">
+        <span>STEP · MESSAGE · TOOL CALL</span>
+        <strong>右侧执行过程</strong>
+        <p>右侧始终跟随中间选中的 Task，展示真实服务端状态和执行细节。</p>
+      </article>
+    </section>
+
+    <section class="design-section" id="new-conversation">
+      <header class="design-heading">
+        <div>
+          <small>Screen 01</small>
+          <h2>空白新会话</h2>
+        </div>
+        <p>点击“新建会话”只产生前端草稿；发送第一条消息时才创建 Session 和 Task。</p>
+      </header>
+      <div class="design-scroll">
+        <div class="screen">
+          <aside class="sidebar">
+            <div class="sidebar-header">
+              <div class="logo"><span class="logo-mark">CA</span> Coding Agent</div>
+              <span class="icon-button" aria-label="折叠左侧栏">‹</span>
+            </div>
+            <div class="new-chat active"><b>+</b> 新建会话</div>
+            <p class="list-caption">最近会话</p>
+            <div class="conversation-list">
+              <div class="conversation-item">
+                <strong>修复计算器项目</strong>
+                <p><span class="tiny-dot completed"></span> 12 分钟前 · 已完成</p>
+              </div>
+              <div class="conversation-item">
+                <strong>分析 CodingAgent 架构</strong>
+                <p><span class="tiny-dot completed"></span> 昨天 · 已完成</p>
+              </div>
+              <div class="conversation-item">
+                <strong>补充文件工具测试</strong>
+                <p><span class="tiny-dot"></span> 3 天前 · 已终止</p>
+              </div>
+            </div>
+            <div class="sidebar-footer">折叠偏好保存在当前浏览器，不写入服务端。</div>
+          </aside>
+
+          <main class="chat">
+            <header class="chat-header">
+              <span class="icon-button" aria-label="展开或折叠左侧栏">☰</span>
+              <div class="chat-title">
+                <strong>新会话</strong>
+                <span>发送第一条消息后保存</span>
+              </div>
+              <div class="chat-header-actions">
+                <span class="status-chip">DRAFT</span>
+                <span class="icon-button" aria-label="展开或折叠右侧栏">◫</span>
+              </div>
+            </header>
+            <section class="chat-body">
+              <div class="empty-chat">
+                <span class="empty-symbol">⌁</span>
+                <h3>开始一段新的编程会话</h3>
+                <p>先设置后端能够访问的 Workspace，再描述要完成的任务。会话会在消息发送成功后创建。</p>
+              </div>
+            </section>
+            <div class="composer-wrap">
+              <div class="composer">
+                <div class="workspace-bar">
+                  <span class="folder-mark">▰</span>
+                  <span class="workspace-value">/Users/myx/Documents/GitHub/CodingAgent/examples/demo-project</span>
+                  <span class="workspace-action">修改 Workspace</span>
+                </div>
+                <div class="composer-input">
+                  <p>告诉 Agent 要完成什么……</p>
+                  <button class="send-button" type="button" aria-label="发送任务">↑</button>
+                </div>
+              </div>
+            </div>
+          </main>
+
+          <aside class="inspector">
+            <header class="inspector-header">
+              <strong>Agent 执行过程</strong>
+              <span class="icon-button" aria-label="折叠右侧栏">›</span>
+            </header>
+            <div class="inspector-content">
+              <div class="inspector-empty">
+                <span class="empty-symbol">◎</span>
+                <strong>尚无执行记录</strong>
+                <p>发送任务后，这里会按 Step 展示工具调用、执行结果和 Task 信息。</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="design-section" id="task-running">
+      <header class="design-heading">
+        <div>
+          <small>Screen 02</small>
+          <h2>Task 运行中</h2>
+        </div>
+        <p>中间展示对话和简要活动，右侧展示技术执行过程；Workspace 与输入框禁用，只保留取消操作。</p>
+      </header>
+      <div class="design-scroll">
+        <div class="screen">
+          <aside class="sidebar">
+            <div class="sidebar-header">
+              <div class="logo"><span class="logo-mark">CA</span> Coding Agent</div>
+              <span class="icon-button">‹</span>
+            </div>
+            <div class="new-chat"><b>+</b> 新建会话</div>
+            <p class="list-caption">最近会话</p>
+            <div class="conversation-list">
+              <div class="conversation-item selected">
+                <strong>修复计算器失败测试</strong>
+                <p><span class="tiny-dot running"></span> 刚刚 · 运行中</p>
+              </div>
+              <div class="conversation-item">
+                <strong>分析 CodingAgent 架构</strong>
+                <p><span class="tiny-dot completed"></span> 昨天 · 已完成</p>
+              </div>
+              <div class="conversation-item">
+                <strong>补充文件工具测试</strong>
+                <p><span class="tiny-dot"></span> 3 天前 · 已终止</p>
+              </div>
+            </div>
+            <div class="sidebar-footer">当前会话有运行中的 Task，不能提交下一轮。</div>
+          </aside>
+
+          <main class="chat">
+            <header class="chat-header">
+              <span class="icon-button">☰</span>
+              <div class="chat-title">
+                <strong>修复计算器失败测试</strong>
+                <span>/?session=s-7a31&amp;task=t-02f4</span>
+              </div>
+              <div class="chat-header-actions">
+                <span class="status-chip running"><span class="status-dot running"></span> RUNNING</span>
+                <span class="icon-button">◫</span>
+              </div>
+            </header>
+            <section class="chat-body">
+              <div class="conversation-feed">
+                <div class="turn user">
+                  <div class="message"><p>请检查这个项目，运行测试并修复失败用例。修改后再次运行测试确认结果。</p></div>
+                  <div class="avatar user-avatar">ME</div>
+                </div>
+                <div class="turn agent">
+                  <div class="avatar">AI</div>
+                  <div class="message">
+                    <p>我正在检查项目结构和失败测试，目前已经定位到除法函数的边界处理。</p>
+                    <div class="activity-summary"><span class="activity-pulse"></span> Step 2 正在执行 · 已完成 5 次工具调用 · 查看执行过程 →</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <div class="composer-wrap">
+              <div class="composer disabled">
+                <div class="workspace-bar">
+                  <span class="folder-mark">▰</span>
+                  <span class="workspace-value">/Users/myx/Documents/GitHub/CodingAgent/examples/calculator</span>
+                  <span class="workspace-action">任务运行中，暂不可修改</span>
+                </div>
+                <div class="composer-input">
+                  <p>等待当前 Task 完成后继续对话</p>
+                  <button class="cancel-button" type="button">取消当前任务</button>
+                </div>
+              </div>
+            </div>
+          </main>
+
+          <aside class="inspector">
+            <header class="inspector-header">
+              <strong>Agent 执行过程</strong>
+              <span class="icon-button">›</span>
+            </header>
+            <div class="inspector-content">
+              <section class="task-overview">
+                <div class="task-overview-top">
+                  <small>task · t-02f4</small>
+                  <span class="status-chip running"><span class="status-dot running"></span> RUNNING</span>
+                </div>
+                <h3>正在分析测试失败</h3>
+              </section>
+              <section class="timeline">
+                <article class="step-card completed">
+                  <div class="step-title"><strong>Step 0</strong><span class="completed-text">COMPLETED</span></div>
+                  <div class="tool-row"><span class="tool-icon">L</span><div><strong>list_files</strong><small>path: .</small></div><span class="tool-state completed">完成</span></div>
+                  <div class="tool-row"><span class="tool-icon">R</span><div><strong>read_file</strong><small>src/calculator.py</small></div><span class="tool-state completed">完成</span></div>
+                </article>
+                <article class="step-card completed">
+                  <div class="step-title"><strong>Step 1</strong><span class="completed-text">COMPLETED</span></div>
+                  <div class="tool-row"><span class="tool-icon">$</span><div><strong>run_command</strong><small>pytest -q · exit 1</small></div><span class="tool-state error">观察结果</span></div>
+                </article>
+                <article class="step-card running">
+                  <div class="step-title"><strong>Step 2</strong><span class="running-text">RUNNING</span></div>
+                  <div class="tool-row"><span class="tool-icon">E</span><div><strong>edit_file</strong><small>src/calculator.py</small></div><span class="tool-state running">执行中</span></div>
+                </article>
+              </section>
+              <section class="task-details">
+                <h4>Task 信息</h4>
+                <dl class="details-grid">
+                  <dt>Workspace</dt><dd>/examples/calculator</dd>
+                  <dt>开始时间</dt><dd>23:42:18</dd>
+                  <dt>当前 Step</dt><dd>2 / max 8</dd>
+                  <dt>工具调用</dt><dd>5</dd>
+                </dl>
+              </section>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="design-section" id="conversation-history">
+      <header class="design-heading">
+        <div>
+          <small>Screen 03</small>
+          <h2>多轮对话完成并查看历史 Task</h2>
+        </div>
+        <p>中间第二轮被选中，右侧因此展示 Task 1，而输入区仍代表同一 Session 的下一轮任务。</p>
+      </header>
+      <div class="design-scroll">
+        <div class="screen">
+          <aside class="sidebar">
+            <div class="sidebar-header">
+              <div class="logo"><span class="logo-mark">CA</span> Coding Agent</div>
+              <span class="icon-button">‹</span>
+            </div>
+            <div class="new-chat"><b>+</b> 新建会话</div>
+            <p class="list-caption">最近会话</p>
+            <div class="conversation-list">
+              <div class="conversation-item selected">
+                <strong>修复计算器失败测试</strong>
+                <p><span class="tiny-dot completed"></span> 刚刚 · 已完成</p>
+              </div>
+              <div class="conversation-item">
+                <strong>分析 CodingAgent 架构</strong>
+                <p><span class="tiny-dot completed"></span> 昨天 · 已完成</p>
+              </div>
+              <div class="conversation-item">
+                <strong>补充文件工具测试</strong>
+                <p><span class="tiny-dot"></span> 3 天前 · 已终止</p>
+              </div>
+            </div>
+            <div class="sidebar-footer">点击会话后加载同一 Session 的全部 Task。</div>
+          </aside>
+
+          <main class="chat">
+            <header class="chat-header">
+              <span class="icon-button">☰</span>
+              <div class="chat-title">
+                <strong>修复计算器失败测试</strong>
+                <span>3 轮对话 · 最新 Task 已完成</span>
+              </div>
+              <div class="chat-header-actions">
+                <span class="status-chip completed"><span class="status-dot completed"></span> COMPLETED</span>
+                <span class="icon-button">◫</span>
+              </div>
+            </header>
+            <section class="chat-body">
+              <div class="conversation-feed" style="gap: 11px; padding-top: 18px">
+                <div class="task-cluster">
+                  <div class="turn user"><div class="message"><p>请先分析项目结构和失败测试。</p></div><div class="avatar user-avatar">ME</div></div>
+                  <div class="turn agent" style="margin-top: 7px"><div class="avatar">AI</div><div class="message"><p>项目是一个 Python 计算器，失败集中在除法边界处理。</p><div class="message-meta">Task 0 · 4 次工具调用 · 已完成</div></div></div>
+                </div>
+                <div class="task-cluster selected">
+                  <p class="task-select-note">右侧正在查看这一轮 · Task 1</p>
+                  <div class="turn user"><div class="message"><p>请修复除法测试并重新运行验证。</p></div><div class="avatar user-avatar">ME</div></div>
+                  <div class="turn agent" style="margin-top: 7px"><div class="avatar">AI</div><div class="message"><p>已经补充零除保护并修复返回类型，全部 18 个测试通过。</p><div class="activity-summary">6 次工具调用 · 查看这一轮执行过程 →</div></div></div>
+                </div>
+                <div class="task-cluster">
+                  <div class="turn user"><div class="message"><p>再解释一下为什么原来的实现会失败。</p></div><div class="avatar user-avatar">ME</div></div>
+                  <div class="turn agent" style="margin-top: 7px"><div class="avatar">AI</div><div class="message"><p>原实现直接执行除法，没有在分母为零前建立明确的错误分支，同时整数输入的返回类型与测试契约不一致。</p><div class="message-meta">Task 2 · 已完成</div></div></div>
+                </div>
+              </div>
+            </section>
+            <div class="composer-wrap">
+              <div class="composer">
+                <div class="workspace-bar">
+                  <span class="folder-mark">▰</span>
+                  <span class="workspace-value">/Users/myx/Documents/GitHub/CodingAgent/examples/calculator</span>
+                  <span class="workspace-action">修改 Workspace</span>
+                </div>
+                <div class="composer-input">
+                  <p>继续追问或交代下一项任务……</p>
+                  <button class="send-button" type="button">↑</button>
+                </div>
+              </div>
+            </div>
+          </main>
+
+          <aside class="inspector">
+            <header class="inspector-header">
+              <strong>Agent 执行过程</strong>
+              <span class="icon-button">›</span>
+            </header>
+            <div class="inspector-content">
+              <section class="task-overview">
+                <div class="task-overview-top">
+                  <small>selected task · Task 1</small>
+                  <span class="status-chip completed"><span class="status-dot completed"></span> COMPLETED</span>
+                </div>
+                <h3>修复除法测试并验证</h3>
+              </section>
+              <section class="timeline">
+                <article class="step-card completed">
+                  <div class="step-title"><strong>Step 0</strong><span class="completed-text">COMPLETED</span></div>
+                  <div class="tool-row"><span class="tool-icon">R</span><div><strong>read_file</strong><small>src/calculator.py</small></div><span class="tool-state completed">完成</span></div>
+                  <div class="tool-row"><span class="tool-icon">R</span><div><strong>read_file</strong><small>tests/test_calculator.py</small></div><span class="tool-state completed">完成</span></div>
+                </article>
+                <article class="step-card completed">
+                  <div class="step-title"><strong>Step 1</strong><span class="completed-text">COMPLETED</span></div>
+                  <div class="tool-row"><span class="tool-icon">E</span><div><strong>edit_file</strong><small>1 exact replacement</small></div><span class="tool-state completed">完成</span></div>
+                  <div class="tool-row"><span class="tool-icon">R</span><div><strong>read_file</strong><small>验证修改内容</small></div><span class="tool-state completed">完成</span></div>
+                </article>
+                <article class="step-card completed">
+                  <div class="step-title"><strong>Step 2</strong><span class="completed-text">COMPLETED</span></div>
+                  <div class="tool-row"><span class="tool-icon">$</span><div><strong>run_command</strong><small>pytest -q · exit 0</small></div><span class="tool-state completed">18 passed</span></div>
+                </article>
+              </section>
+              <section class="task-details">
+                <h4>历史 Task 信息</h4>
+                <dl class="details-grid">
+                  <dt>Task ID</dt><dd>t-48b912</dd>
+                  <dt>Workspace</dt><dd>/examples/calculator</dd>
+                  <dt>开始时间</dt><dd>23:42:18</dd>
+                  <dt>完成时间</dt><dd>23:42:51</dd>
+                  <dt>最终结果</dt><dd>18 passed</dd>
+                </dl>
+              </section>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <footer class="design-footer">
+      <strong>设计边界：</strong>
+      本稿只固定产品语义与界面结构。Session.title 根据第一条 Prompt 确定性生成，并与 Session、Task 0 在同一事务持久化；后续 Task 不修改标题，当前不支持重命名。继续对话会创建新的 Task，历史终态 Task 不发生状态回退。会话 API、同 Session 新建 Task、多轮 Context、共享 TaskSnapshot、URL 恢复、折叠交互和取消逻辑均在后续步骤实现。设计中不包含 WebSocket/SSE、在线编辑器、Git 回滚、多用户鉴权或危险命令批准页面。
+    </footer>
+  </body>
+</html>

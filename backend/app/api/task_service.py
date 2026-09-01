@@ -7,12 +7,10 @@ from pathlib import Path
 from app.agent.cancellation import CancellationToken
 from app.agent.contracts import AgentResult
 from app.agent.runtime import AgentRuntime
+from app.api.session_title import generate_session_title
+from app.api.task_validation import validate_task_prompt
 from app.api.workspace import WorkspaceValidator
 from app.db.persistence import PersistenceService
-
-
-class TaskPromptValidationError(ValueError):
-    """用户提供的任务 Prompt 无效。"""
 
 
 class TaskService:
@@ -43,12 +41,11 @@ class TaskService:
     ) -> str:
         """校验输入并创建 PENDING Task，不启动 Agent Runtime。"""
 
-        _validate_prompt(prompt)
+        validate_task_prompt(prompt)
         validated_workspace = self._workspace_validator.validate(workspace)
 
-        coding_session = self._persistence.create_session()
-        task = self._persistence.create_task(
-            coding_session.id,
+        _, task = self._persistence.create_session_with_task(
+            title=generate_session_title(prompt),
             original_prompt=prompt,
             workspace=str(validated_workspace),
         )
@@ -82,10 +79,3 @@ class TaskService:
 
         task_id = self.create_task(prompt, workspace)
         return self.execute_task(task_id, cancellation_token)
-
-
-def _validate_prompt(prompt: str) -> None:
-    if not isinstance(prompt, str):
-        raise TypeError("prompt must be a string")
-    if not prompt.strip():
-        raise TaskPromptValidationError("prompt must not be blank")
