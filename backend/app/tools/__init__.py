@@ -80,6 +80,7 @@ from app.tools.registry import (
     create_local_tool_registry,
 )
 from app.tools.router import (
+    CommandApprovalRequirement,
     PreparedCommandToolCall,
     PreparedFileToolCall,
     PreparedToolCall,
@@ -182,6 +183,7 @@ __all__ = [
     "LocalToolRegistryError",
     "create_local_tool_registry",
     "PreparedCommandToolCall",
+    "CommandApprovalRequirement",
     "PreparedFileToolCall",
     "PreparedToolCall",
     "PrepareToolResult",

@@ -1,6 +1,11 @@
 import { useState } from "react";
 
-import type { Message, ToolCall } from "../api/contracts";
+import type {
+  CommandApproval,
+  Message,
+  ToolCall,
+} from "../api/contracts";
+import { CommandApprovalPanel } from "./CommandApprovalPanel";
 import {
   formatArguments,
   formatInspectorTime,
@@ -11,6 +16,8 @@ const COLLAPSED_TEXT_THRESHOLD = 600;
 interface ToolCallCardProps {
   readonly toolCall: ToolCall;
   readonly resultMessage: Message | null;
+  readonly approval: CommandApproval | null;
+  readonly onApprovalDecisionRecorded: () => void;
 }
 
 interface OutputBlockProps {
@@ -40,6 +47,8 @@ function OutputBlock({ label, value, className = "" }: OutputBlockProps) {
 export function ToolCallCard({
   toolCall,
   resultMessage,
+  approval,
+  onApprovalDecisionRecorded,
 }: ToolCallCardProps) {
   const resultContent =
     resultMessage?.content ?? toolCall.result ?? toolCall.error;
@@ -62,6 +71,13 @@ export function ToolCallCard({
         <summary>参数</summary>
         <pre>{formatArguments(toolCall.arguments)}</pre>
       </details>
+
+      {approval ? (
+        <CommandApprovalPanel
+          approval={approval}
+          onDecisionRecorded={onApprovalDecisionRecorded}
+        />
+      ) : null}
 
       {resultContent !== null ? (
         <OutputBlock

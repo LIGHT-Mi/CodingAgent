@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.approval import CommandApprovalDecision, CommandApprovalStatus
 from app.agent.contracts import (
     AgentStepStatus,
     MessageRole,
@@ -23,6 +24,10 @@ API_TASK_MESSAGES_PATH = "/api/tasks/{task_id}/messages"
 API_TASK_TOOL_CALLS_PATH = "/api/tasks/{task_id}/tool-calls"
 API_TASK_CANCEL_PATH = "/api/tasks/{task_id}/cancel"
 API_TASK_SNAPSHOT_PATH = "/api/tasks/{task_id}/snapshot"
+API_TASK_COMMAND_APPROVALS_PATH = "/api/tasks/{task_id}/command-approvals"
+API_COMMAND_APPROVAL_DECISION_PATH = (
+    "/api/tasks/{task_id}/command-approvals/{approval_id}/decision"
+)
 API_SESSIONS_PATH = "/api/sessions"
 API_SESSION_PATH = "/api/sessions/{session_id}"
 API_SESSION_TASKS_PATH = "/api/sessions/{session_id}/tasks"
@@ -138,11 +143,36 @@ class CancelTaskResponse(WebContract):
     outcome: TaskCancellationOutcome
 
 
+class CommandApprovalDecisionRequest(WebContract):
+    decision: CommandApprovalDecision
+    command_fingerprint: str = Field(min_length=1)
+
+
+class CommandApprovalResponse(WebContract):
+    id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    step_id: str = Field(min_length=1)
+    tool_call_id: str = Field(min_length=1)
+    status: CommandApprovalStatus
+    command: list[str] = Field(min_length=1)
+    cwd: str = Field(min_length=1)
+    command_fingerprint: str = Field(min_length=1)
+    rule_id: str = Field(min_length=1)
+    risk_level: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    resolution_reason: str | None = None
+    created_at: datetime
+    expires_at: datetime
+    decided_at: datetime | None = None
+    consumed_at: datetime | None = None
+
+
 class TaskSnapshotResponse(WebContract):
     task: TaskResponse
     steps: list[AgentStepResponse]
     messages: list[MessageResponse]
     tool_calls: list[ToolCallResponse]
+    command_approvals: list[CommandApprovalResponse]
 
 
 class ErrorResponse(WebContract):

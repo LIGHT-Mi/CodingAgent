@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.agent import RetryWaiter, RuntimePolicy, RuntimePolicyConfig
 from app.agent.runtime import AgentRuntime
+from app.approval import CommandApprovalCoordinator
+from app.approval.service import CommandApprovalService
 from app.api.conversation_service import ConversationService, TaskSubmitter
 from app.api.task_service import TaskService
 from app.api.workspace import WorkspaceValidator
@@ -44,6 +46,7 @@ class ApplicationFactory:
         session_factory: SessionFactory = SessionLocal,
         llm_gateway_factory: LLMGatewayFactory = create_configured_llm_gateway,
         allowed_workspace_root: str | Path | None = None,
+        command_approval_coordinator: CommandApprovalCoordinator | None = None,
     ) -> None:
         if not isinstance(config, Settings):
             raise TypeError("config must be a Settings")
@@ -51,6 +54,13 @@ class ApplicationFactory:
             raise TypeError("session_factory must be callable")
         if not callable(llm_gateway_factory):
             raise TypeError("llm_gateway_factory must be callable")
+        if command_approval_coordinator is not None and not isinstance(
+            command_approval_coordinator,
+            CommandApprovalCoordinator,
+        ):
+            raise TypeError(
+                "command_approval_coordinator must be a CommandApprovalCoordinator"
+            )
 
         self._config = config
         self._session_factory = session_factory
@@ -59,6 +69,9 @@ class ApplicationFactory:
             config.ALLOWED_WORKSPACE_ROOT
             if allowed_workspace_root is None
             else allowed_workspace_root
+        )
+        self._command_approval_coordinator = (
+            command_approval_coordinator or CommandApprovalCoordinator()
         )
 
     @property
@@ -145,6 +158,17 @@ class ApplicationFactory:
                 )
             ),
             RetryWaiter(),
+            self.create_command_approval_service(persistence),
+        )
+
+    def create_command_approval_service(
+        self,
+        persistence: PersistenceService,
+    ) -> CommandApprovalService:
+        return CommandApprovalService(
+            persistence,
+            self._command_approval_coordinator,
+            self._config.COMMAND_APPROVAL_TIMEOUT_SECONDS,
         )
 
     def create_task_service(

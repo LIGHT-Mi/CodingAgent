@@ -17,6 +17,7 @@ from app.api.conversation_service import (
 from app.db.persistence import PersistenceService, RecordNotFoundError
 from app.web.contracts import (
     AgentStepResponse,
+    CommandApprovalResponse,
     MessageResponse,
     SessionSummaryResponse,
     TaskSnapshotResponse,
@@ -107,6 +108,34 @@ class TaskQueryService:
             for tool_call in self._persistence.load_tool_calls(task_id)
         ]
 
+    def get_command_approvals(
+        self,
+        task_id: str,
+    ) -> list[CommandApprovalResponse]:
+        return [
+            CommandApprovalResponse(
+                id=approval.id,
+                task_id=approval.task_id,
+                step_id=approval.step_id,
+                tool_call_id=approval.tool_call_id,
+                status=approval.status,
+                command=list(approval.command),
+                cwd=approval.cwd,
+                command_fingerprint=approval.command_fingerprint,
+                rule_id=approval.rule_id,
+                risk_level=approval.risk_level,
+                reason=approval.reason,
+                resolution_reason=approval.resolution_reason,
+                created_at=approval.created_at,
+                expires_at=approval.expires_at,
+                decided_at=approval.decided_at,
+                consumed_at=approval.consumed_at,
+            )
+            for approval in self._persistence.load_command_approval_requests(
+                task_id
+            )
+        ]
+
     def get_snapshot(self, task_id: str) -> TaskSnapshotResponse:
         """聚合一个 Task 的状态与完整有序执行历史。"""
 
@@ -115,6 +144,7 @@ class TaskQueryService:
             steps=self.get_steps(task_id),
             messages=self.get_messages(task_id),
             tool_calls=self.get_tool_calls(task_id),
+            command_approvals=self.get_command_approvals(task_id),
         )
 
 

@@ -72,6 +72,8 @@ export function AgentInspector({
               steps={snapshot.steps}
               messages={snapshot.messages}
               toolCalls={snapshot.tool_calls}
+              commandApprovals={snapshot.command_approvals}
+              onApprovalDecisionRecorded={onRetry}
             />
           ) : isLoading ? (
             <div className="inspector-loading" role="status">

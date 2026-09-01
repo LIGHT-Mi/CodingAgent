@@ -6,6 +6,7 @@ interface ChatHeaderProps {
   readonly task: Task | null;
   readonly leftSidebarCollapsed: boolean;
   readonly rightInspectorCollapsed: boolean;
+  readonly pendingApprovalCount: number;
   readonly onToggleLeftSidebar: () => void;
   readonly onToggleRightInspector: () => void;
 }
@@ -16,6 +17,7 @@ export function ChatHeader({
   task,
   leftSidebarCollapsed,
   rightInspectorCollapsed,
+  pendingApprovalCount,
   onToggleLeftSidebar,
   onToggleRightInspector,
 }: ChatHeaderProps) {
@@ -45,6 +47,15 @@ export function ChatHeader({
             ? "尚未创建 Session"
             : `Task ${taskId.slice(0, 8)} · ${task?.status ?? "LOADING"}`}
         </span>
+        {pendingApprovalCount > 0 && rightInspectorCollapsed ? (
+          <button
+            type="button"
+            className="pending-approval-notice"
+            onClick={onToggleRightInspector}
+          >
+            {pendingApprovalCount} 个命令等待批准
+          </button>
+        ) : null}
       </div>
 
       <div className="workspace-header-side is-right">
@@ -54,7 +65,11 @@ export function ChatHeader({
           type="button"
           onClick={onToggleRightInspector}
           aria-label={
-            rightInspectorCollapsed ? "展开执行检查器" : "折叠执行检查器"
+            pendingApprovalCount > 0 && rightInspectorCollapsed
+              ? `展开执行检查器，${pendingApprovalCount} 个命令等待批准`
+              : rightInspectorCollapsed
+                ? "展开执行检查器"
+                : "折叠执行检查器"
           }
           aria-controls="agent-inspector"
           aria-expanded={!rightInspectorCollapsed}

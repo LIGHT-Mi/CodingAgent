@@ -1,6 +1,8 @@
 import type {
   AgentStep,
   CancelTaskResponse,
+  CommandApproval,
+  CommandApprovalDecisionRequest,
   CreateSessionRequest,
   CreateSessionResponse,
   CreateSessionTaskRequest,
@@ -239,6 +241,35 @@ export class ApiClient {
     });
   }
 
+  getTaskCommandApprovals(
+    taskId: string,
+    options: ApiRequestOptions = {},
+  ): Promise<CommandApproval[]> {
+    return this.request<CommandApproval[]>(
+      taskPath(taskId, "/command-approvals"),
+      { signal: options.signal },
+    );
+  }
+
+  decideCommandApproval(
+    taskId: string,
+    approvalId: string,
+    payload: CommandApprovalDecisionRequest,
+    options: ApiRequestOptions = {},
+  ): Promise<CommandApproval> {
+    return this.request<CommandApproval>(
+      taskPath(
+        taskId,
+        `/command-approvals/${encodeURIComponent(approvalId)}/decision`,
+      ),
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+        signal: options.signal,
+      },
+    );
+  }
+
   getTaskSnapshot(
     taskId: string,
     options: ApiRequestOptions = {},
@@ -387,6 +418,27 @@ export function getTaskToolCalls(
   options?: ApiRequestOptions,
 ): Promise<ToolCall[]> {
   return getDefaultApiClient().getTaskToolCalls(taskId, options);
+}
+
+export function getTaskCommandApprovals(
+  taskId: string,
+  options?: ApiRequestOptions,
+): Promise<CommandApproval[]> {
+  return getDefaultApiClient().getTaskCommandApprovals(taskId, options);
+}
+
+export function decideCommandApproval(
+  taskId: string,
+  approvalId: string,
+  payload: CommandApprovalDecisionRequest,
+  options?: ApiRequestOptions,
+): Promise<CommandApproval> {
+  return getDefaultApiClient().decideCommandApproval(
+    taskId,
+    approvalId,
+    payload,
+    options,
+  );
 }
 
 export function getTaskSnapshot(

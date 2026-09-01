@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   cancelTask: vi.fn(),
   createSession: vi.fn(),
   createSessionTask: vi.fn(),
+  decideCommandApproval: vi.fn(),
   getSession: vi.fn(),
   getSessionTasks: vi.fn(),
   getTaskSnapshot: vi.fn(),

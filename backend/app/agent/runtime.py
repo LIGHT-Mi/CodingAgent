@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from app.approval.contracts import CommandApprovalStatus
+from app.approval.results import build_command_approval_observation
+from app.approval.service import CommandApprovalService
 from app.agent.cancellation import CancellationToken
 from app.agent.contracts import (
     AgentResult,
@@ -34,7 +37,11 @@ from app.context.manager import ContextManager
 from app.db.models.tool_call import ToolCall
 from app.db.persistence import PersistenceService
 from app.llm.gateway import LLMGateway, LLMGatewayResult
-from app.tools.router import PreparedToolCall, ToolRouter
+from app.tools.router import (
+    CommandApprovalRequirement,
+    PreparedToolCall,
+    ToolRouter,
+)
 
 
 class AgentRuntime:
@@ -48,6 +55,7 @@ class AgentRuntime:
         tool_router: ToolRouter,
         runtime_policy: RuntimePolicy,
         retry_waiter: RetryWaiter,
+        command_approval_service: CommandApprovalService | None = None,
     ) -> None:
         if not isinstance(persistence, PersistenceService):
             raise TypeError("persistence must be a PersistenceService")
@@ -61,12 +69,20 @@ class AgentRuntime:
             raise TypeError("runtime_policy must be a RuntimePolicy")
         if not isinstance(retry_waiter, RetryWaiter):
             raise TypeError("retry_waiter must be a RetryWaiter")
+        if command_approval_service is not None and not isinstance(
+            command_approval_service,
+            CommandApprovalService,
+        ):
+            raise TypeError(
+                "command_approval_service must be a CommandApprovalService"
+            )
         self._persistence = persistence
         self._context_manager = context_manager
         self._llm_gateway = llm_gateway
         self._tool_router = tool_router
         self._runtime_policy = runtime_policy
         self._retry_waiter = retry_waiter
+        self._command_approval_service = command_approval_service
 
     def run(
         self,
@@ -390,6 +406,22 @@ class AgentRuntime:
                     return None
                 continue
 
+            if isinstance(prepared, CommandApprovalRequirement):
+                approval_result = self._await_and_execute_approved_command(
+                    task_id,
+                    step_id,
+                    record,
+                    prepared,
+                    cancellation_token,
+                )
+                if approval_result is None:
+                    return None
+                self._persistence.save_tool_result(record.id, approval_result)
+                persisted_results.append(approval_result)
+                if cancellation_token.is_cancelled():
+                    return None
+                continue
+
             assert isinstance(prepared, PreparedToolCall)
             self._persistence.start_tool_call(record.id)
             if cancellation_token.is_cancelled():
@@ -401,6 +433,83 @@ class AgentRuntime:
                 return None
 
         return tuple(persisted_results)
+
+    def _await_and_execute_approved_command(
+        self,
+        task_id: str,
+        step_id: str,
+        record: ToolCall,
+        requirement: CommandApprovalRequirement,
+        cancellation_token: CancellationToken,
+    ) -> ToolResult | None:
+        service = self._command_approval_service
+        if service is None:
+            raise RuntimeError(
+                "a command requires approval but no approval service is configured"
+            )
+
+        approval = service.create_request(
+            task_id=task_id,
+            step_id=step_id,
+            tool_call_id=record.id,
+            requirement=requirement,
+        )
+        approval = service.wait_for_decision(approval, cancellation_token)
+        if cancellation_token.is_cancelled():
+            self._persistence.cancel_command_approval(approval.id)
+            return None
+
+        approval_status = CommandApprovalStatus(approval.status)
+        if approval_status is not CommandApprovalStatus.APPROVED:
+            return build_command_approval_observation(
+                requirement.tool_call_id,
+                approval,
+            )
+
+        revalidated = self._tool_router.revalidate_approved_command(
+            requirement,
+            tuple(approval.command),
+            approval.cwd,
+            approval.command_fingerprint,
+        )
+        if isinstance(revalidated, ToolResult):
+            invalidated = service.invalidate(
+                approval.id,
+                "REVALIDATION_FAILED",
+            )
+            return replace(
+                revalidated,
+                metadata={
+                    **dict(revalidated.metadata),
+                    "approval_request_id": approval.id,
+                    "approval_status": invalidated.status,
+                    "command_fingerprint": approval.command_fingerprint,
+                },
+            )
+
+        consumed = service.consume(
+            approval.id,
+            approval.command_fingerprint,
+        )
+        if consumed.status != CommandApprovalStatus.CONSUMED.value:
+            return build_command_approval_observation(
+                requirement.tool_call_id,
+                consumed,
+            )
+
+        self._persistence.start_tool_call(record.id)
+        if cancellation_token.is_cancelled():
+            return None
+        result = self._tool_router.execute(revalidated)
+        return replace(
+            result,
+            metadata={
+                **dict(result.metadata),
+                "approval_request_id": approval.id,
+                "approval_status": CommandApprovalStatus.CONSUMED.value,
+                "command_fingerprint": approval.command_fingerprint,
+            },
+        )
 
     def _cancel_if_requested(
         self,

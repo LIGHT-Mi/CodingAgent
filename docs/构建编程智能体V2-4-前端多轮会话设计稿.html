@@ -1312,7 +1312,7 @@
 
     <footer class="design-footer">
       <strong>设计边界：</strong>
-      本稿只固定产品语义与界面结构。Session.title 根据第一条 Prompt 确定性生成，并与 Session、Task 0 在同一事务持久化；后续 Task 不修改标题，当前不支持重命名。继续对话会创建新的 Task，历史终态 Task 不发生状态回退。会话 API、同 Session 新建 Task、多轮 Context、共享 TaskSnapshot、URL 恢复、折叠交互和取消逻辑均在后续步骤实现。设计中不包含 WebSocket/SSE、在线编辑器、Git 回滚、多用户鉴权或危险命令批准页面。
+      本稿固定三栏产品语义与界面结构。Session.title 根据第一条 Prompt 确定性生成，并与 Session、Task 0 在同一事务持久化；后续 Task 不修改标题，当前不支持重命名。继续对话会创建新的 Task，历史终态 Task 不发生状态回退。正式实现已经支持会话 API、同 Session 新建 Task、多轮 Context、共享 TaskSnapshot、URL 恢复、折叠交互、取消，以及右侧 ToolCall 卡片中的一次性危险命令批准。当前仍不包含 WebSocket/SSE、在线编辑器、Git 回滚或多用户鉴权。
     </footer>
   </body>
 </html>

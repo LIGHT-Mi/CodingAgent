@@ -14,14 +14,15 @@ from app.tools.command_results import CommandResultBuilder
 
 
 class CommandSafetyVerdict(str, Enum):
-    """第 6 步命令安全策略可以作出的决定。"""
+    """命令安全策略可以作出的互斥决定。"""
 
     ALLOW = "ALLOW"
+    REQUIRE_APPROVAL = "REQUIRE_APPROVAL"
     REJECT = "REJECT"
 
 
 class CommandRiskLevel(str, Enum):
-    """用于日志、Observation 和未来用户批准界面的风险等级。"""
+    """用于日志、Observation 和用户批准界面的风险等级。"""
 
     LOW = "LOW"
     MEDIUM = "MEDIUM"
@@ -48,15 +49,17 @@ class CommandSafetyDecision:
             raise TypeError("risk_level must be a CommandRiskLevel")
         if not isinstance(self.approval_eligible, bool):
             raise TypeError("approval_eligible must be a boolean")
-        if (
-            self.verdict is CommandSafetyVerdict.ALLOW
-            and self.approval_eligible
-        ):
-            raise ValueError("an allowed command cannot require future approval")
+        expected_approval_eligible = (
+            self.verdict is CommandSafetyVerdict.REQUIRE_APPROVAL
+        )
+        if self.approval_eligible is not expected_approval_eligible:
+            raise ValueError(
+                "approval_eligible must be true only for REQUIRE_APPROVAL"
+            )
 
 
 class CommandSafetyPolicy:
-    """使用小型允许集识别当前可自动执行和必须拒绝的命令。"""
+    """区分自动允许、需要一次性批准和永久拒绝的命令。"""
 
     _PYTHON_EXECUTABLES = frozenset({"python", "python3"})
     _SAFE_PYTHON_MODULES = {
@@ -123,7 +126,6 @@ class CommandSafetyPolicy:
                 ),
                 rule_id="UNSUPPORTED_SHELL_SYNTAX",
                 risk_level=CommandRiskLevel.HIGH,
-                approval_eligible=False,
             )
 
         if _is_permanently_blocked_executable(executable_name):
@@ -134,38 +136,34 @@ class CommandSafetyPolicy:
                 ),
                 rule_id="PERMANENTLY_BLOCKED_EXECUTABLE",
                 risk_level=CommandRiskLevel.CRITICAL,
-                approval_eligible=False,
             )
 
         if executable_name in self._SHELL_EXECUTABLES:
-            return _reject(
-                reason="shell interpreters require explicit future user approval",
+            return _require_approval(
+                reason="shell interpreters require explicit user approval",
                 rule_id="SHELL_INTERPRETER_REQUIRES_APPROVAL",
                 risk_level=CommandRiskLevel.HIGH,
-                approval_eligible=True,
             )
 
         if (
             executable_name
             in self._APPROVAL_ELIGIBLE_DESTRUCTIVE_EXECUTABLES
         ):
-            return _reject(
+            return _require_approval(
                 reason=(
-                    "destructive process or file command requires future approval"
+                    "destructive process or file command requires user approval"
                 ),
                 rule_id="DESTRUCTIVE_COMMAND_REQUIRES_APPROVAL",
                 risk_level=CommandRiskLevel.HIGH,
-                approval_eligible=True,
             )
 
         if executable != executable_name:
-            return _reject(
+            return _require_approval(
                 reason=(
                     "executable paths are not in the automatic command allowlist"
                 ),
                 rule_id="EXECUTABLE_PATH_REQUIRES_APPROVAL",
                 risk_level=CommandRiskLevel.HIGH,
-                approval_eligible=True,
             )
 
         if executable_name == "pytest":
@@ -178,11 +176,10 @@ class CommandSafetyPolicy:
         if executable_name in self._PYTHON_EXECUTABLES:
             return self._evaluate_python(command)
 
-        return _reject(
+        return _require_approval(
             reason="executable is not in the automatic command allowlist",
             rule_id="UNKNOWN_EXECUTABLE_REQUIRES_APPROVAL",
             risk_level=CommandRiskLevel.MEDIUM,
-            approval_eligible=True,
         )
 
     def _evaluate_python(
@@ -206,11 +203,10 @@ class CommandSafetyPolicy:
                     rule_id=rule_id,
                     risk_level=risk_level,
                 )
-            return _reject(
+            return _require_approval(
                 reason=f"python module {module!r} is not automatically allowed",
                 rule_id="PYTHON_MODULE_REQUIRES_APPROVAL",
                 risk_level=CommandRiskLevel.HIGH,
-                approval_eligible=True,
             )
 
         if len(command) >= 2 and _is_workspace_relative_python_script(command[1]):
@@ -220,14 +216,13 @@ class CommandSafetyPolicy:
                 risk_level=CommandRiskLevel.MEDIUM,
             )
 
-        return _reject(
+        return _require_approval(
             reason=(
                 "interactive Python, inline code, stdin code, and unsupported "
                 "Python options are not automatically allowed"
             ),
             rule_id="PYTHON_MODE_REQUIRES_APPROVAL",
             risk_level=CommandRiskLevel.HIGH,
-            approval_eligible=True,
         )
 
 
@@ -338,14 +333,28 @@ def _reject(
     reason: str,
     rule_id: str,
     risk_level: CommandRiskLevel,
-    approval_eligible: bool,
 ) -> CommandSafetyDecision:
     return CommandSafetyDecision(
         verdict=CommandSafetyVerdict.REJECT,
         reason=reason,
         rule_id=rule_id,
         risk_level=risk_level,
-        approval_eligible=approval_eligible,
+        approval_eligible=False,
+    )
+
+
+def _require_approval(
+    *,
+    reason: str,
+    rule_id: str,
+    risk_level: CommandRiskLevel,
+) -> CommandSafetyDecision:
+    return CommandSafetyDecision(
+        verdict=CommandSafetyVerdict.REQUIRE_APPROVAL,
+        reason=reason,
+        rule_id=rule_id,
+        risk_level=risk_level,
+        approval_eligible=True,
     )
 
 

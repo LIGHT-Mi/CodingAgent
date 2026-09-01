@@ -44,8 +44,12 @@ GET  /api/tasks/{task_id}/snapshot
 GET  /api/tasks/{task_id}/steps
 GET  /api/tasks/{task_id}/messages
 GET  /api/tasks/{task_id}/tool-calls
+GET  /api/tasks/{task_id}/command-approvals
+POST /api/tasks/{task_id}/command-approvals/{approval_id}/decision
 POST /api/tasks/{task_id}/cancel
 ```
+
+需要批准的命令会保持 ToolCall 为 `PENDING`，直到用户通过 Web API 或前端明确允许、拒绝，或者请求超过 `COMMAND_APPROVAL_TIMEOUT_SECONDS`。决定接口只接收决定和页面展示的命令指纹；argv 与规范工作目录以服务端持久化记录为准。
 
 For a separate frontend development server, configure an explicit JSON array
 of allowed origins in `.env`; wildcard origins are rejected:

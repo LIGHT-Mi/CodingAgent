@@ -8,9 +8,11 @@ from pathlib import Path
 from app.agent.contracts import ToolCallRequest, ToolResult, ToolResultStatus
 from app.tools.command_contracts import RunCommandArguments
 from app.tools.command_policy import (
+    CommandSafetyDecision,
     CommandSafetyPolicy,
     CommandSafetyVerdict,
     build_rejected_command_result,
+    command_fingerprint,
 )
 from app.tools.command_results import CommandResultBuilder
 from app.tools.command_tool import RunCommandTool
@@ -97,7 +99,44 @@ class PreparedCommandToolCall(PreparedToolCall):
             raise ValueError("resolved_cwd must be inside workspace")
 
 
-PrepareToolResult = PreparedToolCall | ToolResult
+@dataclass(frozen=True, slots=True)
+class CommandApprovalRequirement:
+    """已完成初次校验、但必须等待一次性用户批准的命令。"""
+
+    tool_call_id: str
+    tool_name: str
+    workspace: Path
+    arguments: RunCommandArguments
+    resolved_cwd: Path
+    safety_decision: CommandSafetyDecision
+    command_fingerprint: str
+
+    def __post_init__(self) -> None:
+        _require_non_blank(self.tool_call_id, "tool_call_id")
+        _require_non_blank(self.tool_name, "tool_name")
+        if not isinstance(self.workspace, Path):
+            raise TypeError("workspace must be a pathlib.Path")
+        if not self.workspace.is_absolute():
+            raise ValueError("approval workspace must be absolute")
+        if not isinstance(self.arguments, RunCommandArguments):
+            raise TypeError("arguments must be RunCommandArguments")
+        if not isinstance(self.resolved_cwd, Path):
+            raise TypeError("resolved_cwd must be a pathlib.Path")
+        if not self.resolved_cwd.is_absolute():
+            raise ValueError("resolved_cwd must be absolute")
+        if not self.resolved_cwd.is_relative_to(self.workspace):
+            raise ValueError("resolved_cwd must be inside workspace")
+        if not isinstance(self.safety_decision, CommandSafetyDecision):
+            raise TypeError("safety_decision must be a CommandSafetyDecision")
+        if (
+            self.safety_decision.verdict
+            is not CommandSafetyVerdict.REQUIRE_APPROVAL
+        ):
+            raise ValueError("safety_decision must require approval")
+        _require_non_blank(self.command_fingerprint, "command_fingerprint")
+
+
+PrepareToolResult = PreparedToolCall | CommandApprovalRequirement | ToolResult
 
 
 class ToolRouter:
@@ -198,6 +237,115 @@ class ToolRouter:
             f"unsupported prepared call type: {type(prepared_call).__name__}"
         )
 
+    def revalidate_approved_command(
+        self,
+        requirement: CommandApprovalRequirement,
+        approved_command: tuple[str, ...],
+        approved_cwd: str,
+        approved_fingerprint: str,
+    ) -> PreparedCommandToolCall | ToolResult:
+        """对用户已批准的原始命令重新执行 cwd、指纹和安全校验。"""
+
+        if not isinstance(requirement, CommandApprovalRequirement):
+            raise TypeError("requirement must be a CommandApprovalRequirement")
+        if (
+            not isinstance(approved_command, tuple)
+            or not approved_command
+            or any(
+                not isinstance(argument, str) or not argument
+                for argument in approved_command
+            )
+        ):
+            raise TypeError("approved_command must be a tuple of strings")
+        _require_non_blank(approved_cwd, "approved_cwd")
+        _require_non_blank(approved_fingerprint, "approved_fingerprint")
+
+        if (
+            approved_command != requirement.arguments.command
+            or approved_cwd != str(requirement.resolved_cwd)
+        ):
+            return self._command_result_builder.build_rejected(
+                requirement.tool_call_id,
+                "persisted approved command or working directory was changed",
+                argv=requirement.arguments.command,
+                cwd=requirement.resolved_cwd,
+                metadata={"approval_revalidation_failed": True},
+            )
+
+        try:
+            resolved_cwd = self._working_directory_guard.resolve(
+                requirement.workspace,
+                requirement.arguments.cwd,
+            )
+        except WorkingDirectoryError as exc:
+            builder = (
+                self._command_result_builder.build_rejected
+                if exc.status is ToolResultStatus.REJECTED
+                else self._command_result_builder.build_error
+            )
+            return builder(
+                requirement.tool_call_id,
+                f"approved command failed cwd revalidation: {exc}",
+                argv=requirement.arguments.command,
+                cwd=requirement.arguments.cwd,
+                metadata={"approval_revalidation_failed": True},
+            )
+
+        current_fingerprint = command_fingerprint(
+            requirement.arguments.command,
+            resolved_cwd,
+        )
+        if (
+            approved_fingerprint != requirement.command_fingerprint
+            or current_fingerprint != requirement.command_fingerprint
+        ):
+            return self._command_result_builder.build_rejected(
+                requirement.tool_call_id,
+                "approved command or working directory changed before execution",
+                argv=requirement.arguments.command,
+                cwd=resolved_cwd,
+                metadata={
+                    "approval_revalidation_failed": True,
+                    "approved_fingerprint": approved_fingerprint,
+                    "current_fingerprint": current_fingerprint,
+                },
+            )
+
+        decision = self._command_safety_policy.evaluate(
+            requirement.arguments,
+            resolved_cwd,
+        )
+        if decision.verdict is CommandSafetyVerdict.REJECT:
+            return build_rejected_command_result(
+                requirement.tool_call_id,
+                requirement.arguments,
+                resolved_cwd,
+                decision,
+            )
+        if (
+            decision.verdict is CommandSafetyVerdict.REQUIRE_APPROVAL
+            and decision != requirement.safety_decision
+        ):
+            return self._command_result_builder.build_rejected(
+                requirement.tool_call_id,
+                "command risk classification changed after user approval",
+                argv=requirement.arguments.command,
+                cwd=resolved_cwd,
+                metadata={
+                    "approval_revalidation_failed": True,
+                    "original_rule_id": requirement.safety_decision.rule_id,
+                    "current_rule_id": decision.rule_id,
+                },
+            )
+
+        return PreparedCommandToolCall(
+            tool_call_id=requirement.tool_call_id,
+            tool_name=requirement.tool_name,
+            workspace=requirement.workspace,
+            arguments=requirement.arguments,
+            resolved_cwd=resolved_cwd,
+        )
+
     def _prepare_file_call(
         self,
         request: ToolCallRequest,
@@ -278,6 +426,19 @@ class ToolRouter:
                 arguments,
                 resolved_cwd,
                 decision,
+            )
+        if decision.verdict is CommandSafetyVerdict.REQUIRE_APPROVAL:
+            return CommandApprovalRequirement(
+                tool_call_id=request.tool_call_id,
+                tool_name=request.tool_name,
+                workspace=Path(workspace),
+                arguments=arguments,
+                resolved_cwd=resolved_cwd,
+                safety_decision=decision,
+                command_fingerprint=command_fingerprint(
+                    arguments.command,
+                    resolved_cwd,
+                ),
             )
 
         return PreparedCommandToolCall(

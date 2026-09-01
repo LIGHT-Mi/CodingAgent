@@ -57,6 +57,8 @@ describe("Markdown rendering", () => {
           },
         ]}
         toolCalls={[]}
+        commandApprovals={[]}
+        onApprovalDecisionRecorded={() => undefined}
       />,
     );
 

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     COMMAND_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0)
     MAX_COMMAND_OUTPUT_BYTES_PER_STREAM: int = Field(default=65_536, ge=2)
     COMMAND_TERMINATION_GRACE_SECONDS: float = Field(default=2.0, gt=0)
+    COMMAND_APPROVAL_TIMEOUT_SECONDS: float = Field(default=300.0, gt=0)
     ALLOWED_WORKSPACE_ROOT: Path = BACKEND_DIR.parent
     WEB_CORS_ALLOWED_ORIGINS: tuple[str, ...] = ()
 

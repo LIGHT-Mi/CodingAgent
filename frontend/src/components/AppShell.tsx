@@ -11,6 +11,7 @@ import type {
   SessionSummary,
   TaskStatus,
 } from "../api/contracts";
+import { CommandApprovalStatus as ApprovalStatus } from "../api/contracts";
 import { isTerminalTaskStatus } from "../api/taskStatus";
 import { usePersistentBoolean } from "../hooks/usePersistentBoolean";
 import {
@@ -115,6 +116,10 @@ export function AppShell() {
     selectedSnapshotState.snapshot?.task ??
     tasks.find((task) => task.id === selectedTaskId) ??
     null;
+  const pendingApprovalCount =
+    latestSnapshotState.snapshot?.command_approvals.filter(
+      (approval) => approval.status === ApprovalStatus.PENDING,
+    ).length ?? 0;
 
   useEffect(() => {
     if (!isMobile) {
@@ -431,6 +436,7 @@ export function AppShell() {
         navigationLoading={isRestoringUrl}
         leftSidebarCollapsed={!leftPanelOpen}
         rightInspectorCollapsed={!rightPanelOpen}
+        pendingApprovalCount={pendingApprovalCount}
         onToggleLeftSidebar={handleToggleLeftPanel}
         onToggleRightInspector={handleToggleRightPanel}
         onTaskSelected={handleTaskSelected}

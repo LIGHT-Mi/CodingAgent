@@ -65,6 +65,25 @@ export const TaskCancellationOutcome = enumValues({
 export type TaskCancellationOutcome =
   (typeof TaskCancellationOutcome)[keyof typeof TaskCancellationOutcome];
 
+export const CommandApprovalStatus = enumValues({
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+  EXPIRED: "EXPIRED",
+  INVALIDATED: "INVALIDATED",
+  CONSUMED: "CONSUMED",
+  CANCELLED: "CANCELLED",
+});
+export type CommandApprovalStatus =
+  (typeof CommandApprovalStatus)[keyof typeof CommandApprovalStatus];
+
+export const CommandApprovalDecision = enumValues({
+  APPROVE: "APPROVE",
+  REJECT: "REJECT",
+});
+export type CommandApprovalDecision =
+  (typeof CommandApprovalDecision)[keyof typeof CommandApprovalDecision];
+
 export interface Task {
   readonly id: string;
   readonly session_id: string;
@@ -119,6 +138,30 @@ export interface ToolCall {
   readonly finished_at: IsoDateTimeString | null;
 }
 
+export interface CommandApproval {
+  readonly id: string;
+  readonly task_id: string;
+  readonly step_id: string;
+  readonly tool_call_id: string;
+  readonly status: CommandApprovalStatus;
+  readonly command: string[];
+  readonly cwd: string;
+  readonly command_fingerprint: string;
+  readonly rule_id: string;
+  readonly risk_level: string;
+  readonly reason: string;
+  readonly resolution_reason: string | null;
+  readonly created_at: IsoDateTimeString;
+  readonly expires_at: IsoDateTimeString;
+  readonly decided_at: IsoDateTimeString | null;
+  readonly consumed_at: IsoDateTimeString | null;
+}
+
+export interface CommandApprovalDecisionRequest {
+  readonly decision: CommandApprovalDecision;
+  readonly command_fingerprint: string;
+}
+
 export interface CreateSessionRequest {
   readonly prompt: string;
   readonly workspace: string;
@@ -154,6 +197,7 @@ export interface TaskSnapshot {
   readonly steps: AgentStep[];
   readonly messages: Message[];
   readonly tool_calls: ToolCall[];
+  readonly command_approvals: CommandApproval[];
 }
 
 export interface CancelTaskResponse {

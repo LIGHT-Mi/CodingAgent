@@ -1,6 +1,7 @@
 import {
   MessageRole,
   type AgentStep,
+  type CommandApproval,
   type Message,
   type ToolCall,
 } from "../api/contracts";
@@ -12,9 +13,17 @@ interface StepCardProps {
   readonly step: AgentStep;
   readonly messages: Message[];
   readonly toolCalls: ToolCall[];
+  readonly commandApprovals: CommandApproval[];
+  readonly onApprovalDecisionRecorded: () => void;
 }
 
-export function StepCard({ step, messages, toolCalls }: StepCardProps) {
+export function StepCard({
+  step,
+  messages,
+  toolCalls,
+  commandApprovals,
+  onApprovalDecisionRecorded,
+}: StepCardProps) {
   const assistantMessages = messages.filter(
     (message) => message.role === MessageRole.ASSISTANT,
   );
@@ -67,6 +76,15 @@ export function StepCard({ step, messages, toolCalls }: StepCardProps) {
                         key={toolCall.id}
                         toolCall={toolCall}
                         resultMessage={resultMessage}
+                        approval={
+                          commandApprovals.find(
+                            (approval) =>
+                              approval.tool_call_id === toolCall.id,
+                          ) ?? null
+                        }
+                        onApprovalDecisionRecorded={
+                          onApprovalDecisionRecorded
+                        }
                       />
                     );
                   })}

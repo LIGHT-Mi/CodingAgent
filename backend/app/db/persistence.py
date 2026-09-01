@@ -10,6 +10,10 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.approval.contracts import (
+    CommandApprovalDecision,
+    CommandApprovalStatus,
+)
 from app.agent.contracts import (
     AgentResult,
     AgentStepStatus,
@@ -22,6 +26,7 @@ from app.agent.contracts import (
     ToolResultStatus,
 )
 from app.db.models.agent_step import AgentStep
+from app.db.models.command_approval import CommandApprovalRequest
 from app.db.models.message import Message
 from app.db.models.session_record import (
     SESSION_TITLE_MAX_LENGTH,
@@ -645,6 +650,261 @@ class PersistenceService:
             "load tool calls",
         )
 
+    def create_command_approval_request(
+        self,
+        *,
+        request_id: str,
+        task_id: str,
+        step_id: str,
+        tool_call_id: str,
+        command: tuple[str, ...],
+        cwd: str,
+        command_fingerprint: str,
+        rule_id: str,
+        risk_level: str,
+        reason: str,
+        expires_at: datetime,
+    ) -> CommandApprovalRequest:
+        """为仍为 PENDING 的命令 ToolCall 创建唯一、不可变的批准请求。"""
+
+        for value, field_name in (
+            (request_id, "request_id"),
+            (task_id, "task_id"),
+            (step_id, "step_id"),
+            (tool_call_id, "tool_call_id"),
+            (cwd, "cwd"),
+            (command_fingerprint, "command_fingerprint"),
+            (rule_id, "rule_id"),
+            (risk_level, "risk_level"),
+            (reason, "reason"),
+        ):
+            _require_non_blank(value, field_name)
+        if not isinstance(command, tuple) or not command:
+            raise PersistenceValidationError("command must be a non-empty tuple")
+        if any(
+            not isinstance(argument, str) or not argument
+            for argument in command
+        ):
+            raise PersistenceValidationError(
+                "command must contain only non-empty strings"
+            )
+        _require_aware_datetime(expires_at, "expires_at")
+
+        with self._write_transaction("create command approval request"):
+            self._require_running_task_and_step(task_id, step_id)
+            tool_call = self._require_tool_call(tool_call_id)
+            if tool_call.step_id != step_id:
+                raise PersistenceValidationError(
+                    f"ToolCall {tool_call_id} does not belong to AgentStep {step_id}"
+                )
+            self._require_status(
+                "ToolCall",
+                tool_call.id,
+                tool_call.status,
+                ToolCallStatus.PENDING.value,
+            )
+            if tool_call.tool_name != "run_command":
+                raise PersistenceValidationError(
+                    "command approval can only bind to run_command"
+                )
+            request = CommandApprovalRequest(
+                id=request_id,
+                task_id=task_id,
+                step_id=step_id,
+                tool_call_id=tool_call_id,
+                status=CommandApprovalStatus.PENDING.value,
+                command=list(command),
+                cwd=cwd,
+                command_fingerprint=command_fingerprint,
+                rule_id=rule_id,
+                risk_level=risk_level,
+                reason=reason,
+                expires_at=expires_at,
+            )
+            self._db.add(request)
+            self._db.flush()
+        return request
+
+    def get_command_approval_request(
+        self,
+        request_id: str,
+    ) -> CommandApprovalRequest | None:
+        """读取跨 HTTP/Runtime Session 变化后的批准请求最新状态。"""
+
+        _require_non_blank(request_id, "request_id")
+        try:
+            return self._db.scalar(
+                select(CommandApprovalRequest)
+                .where(CommandApprovalRequest.id == request_id)
+                .execution_options(populate_existing=True)
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceServiceError(
+                "load command approval request failed"
+            ) from exc
+
+    def load_command_approval_requests(
+        self,
+        task_id: str,
+    ) -> list[CommandApprovalRequest]:
+        """按创建时间稳定返回一个 Task 的全部命令批准请求。"""
+
+        _require_non_blank(task_id, "task_id")
+        self._require_task_for_read(task_id)
+        return self._read_many(
+            select(CommandApprovalRequest)
+            .where(CommandApprovalRequest.task_id == task_id)
+            .order_by(
+                CommandApprovalRequest.created_at.asc(),
+                CommandApprovalRequest.id.asc(),
+            ),
+            "load command approval requests",
+        )
+
+    def decide_command_approval(
+        self,
+        *,
+        task_id: str,
+        request_id: str,
+        decision: CommandApprovalDecision,
+        command_fingerprint: str,
+    ) -> CommandApprovalRequest:
+        """锁定请求并接受一次与展示指纹完全一致的用户决定。"""
+
+        _require_non_blank(task_id, "task_id")
+        _require_non_blank(request_id, "request_id")
+        _require_non_blank(command_fingerprint, "command_fingerprint")
+        if not isinstance(decision, CommandApprovalDecision):
+            raise TypeError("decision must be a CommandApprovalDecision")
+
+        with self._write_transaction("decide command approval"):
+            request = self._lock_command_approval_request(request_id)
+            if request.task_id != task_id:
+                raise PersistenceValidationError(
+                    "command approval does not belong to the requested Task"
+                )
+            self._require_status(
+                "CommandApprovalRequest",
+                request.id,
+                request.status,
+                CommandApprovalStatus.PENDING.value,
+            )
+            if request.command_fingerprint != command_fingerprint:
+                raise PersistenceValidationError(
+                    "command approval fingerprint does not match the displayed request"
+                )
+            now = _utc_now()
+            if _datetime_at_or_after(now, request.expires_at):
+                request.status = CommandApprovalStatus.EXPIRED.value
+                request.resolution_reason = "APPROVAL_TIMEOUT"
+                request.decided_at = now
+                return request
+            request.status = (
+                CommandApprovalStatus.APPROVED.value
+                if decision is CommandApprovalDecision.APPROVE
+                else CommandApprovalStatus.REJECTED.value
+            )
+            request.resolution_reason = (
+                "USER_APPROVED"
+                if decision is CommandApprovalDecision.APPROVE
+                else "USER_REJECTED"
+            )
+            request.decided_at = now
+        return request
+
+    def expire_command_approval(self, request_id: str) -> CommandApprovalRequest:
+        return self._transition_open_command_approval(
+            request_id,
+            CommandApprovalStatus.EXPIRED,
+            "APPROVAL_TIMEOUT",
+        )
+
+    def cancel_command_approval(self, request_id: str) -> CommandApprovalRequest:
+        return self._transition_open_command_approval(
+            request_id,
+            CommandApprovalStatus.CANCELLED,
+            "USER_CANCELLED",
+        )
+
+    def invalidate_command_approval(
+        self,
+        request_id: str,
+        reason: str,
+    ) -> CommandApprovalRequest:
+        _require_non_blank(reason, "reason")
+        return self._transition_open_command_approval(
+            request_id,
+            CommandApprovalStatus.INVALIDATED,
+            reason,
+        )
+
+    def consume_command_approval(
+        self,
+        request_id: str,
+        command_fingerprint: str,
+    ) -> CommandApprovalRequest:
+        """将一次已批准请求原子转为 CONSUMED，禁止再次执行。"""
+
+        _require_non_blank(request_id, "request_id")
+        _require_non_blank(command_fingerprint, "command_fingerprint")
+        with self._write_transaction("consume command approval"):
+            request = self._lock_command_approval_request(request_id)
+            self._require_status(
+                "CommandApprovalRequest",
+                request.id,
+                request.status,
+                CommandApprovalStatus.APPROVED.value,
+            )
+            if request.command_fingerprint != command_fingerprint:
+                raise PersistenceValidationError(
+                    "command approval fingerprint changed before consumption"
+                )
+            now = _utc_now()
+            if _datetime_at_or_after(now, request.expires_at):
+                request.status = CommandApprovalStatus.EXPIRED.value
+                request.resolution_reason = "APPROVAL_TIMEOUT"
+                request.decided_at = request.decided_at or now
+                return request
+            request.status = CommandApprovalStatus.CONSUMED.value
+            request.consumed_at = now
+        return request
+
+    def _transition_open_command_approval(
+        self,
+        request_id: str,
+        target_status: CommandApprovalStatus,
+        reason: str,
+    ) -> CommandApprovalRequest:
+        _require_non_blank(request_id, "request_id")
+        with self._write_transaction("close command approval request"):
+            request = self._lock_command_approval_request(request_id)
+            current_status = CommandApprovalStatus(request.status)
+            if current_status not in {
+                CommandApprovalStatus.PENDING,
+                CommandApprovalStatus.APPROVED,
+            }:
+                return request
+            request.status = target_status.value
+            request.resolution_reason = reason
+            request.decided_at = request.decided_at or _utc_now()
+        return request
+
+    def _lock_command_approval_request(
+        self,
+        request_id: str,
+    ) -> CommandApprovalRequest:
+        request = self._db.scalar(
+            select(CommandApprovalRequest)
+            .where(CommandApprovalRequest.id == request_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if request is None:
+            raise RecordNotFoundError(
+                f"CommandApprovalRequest {request_id} was not found"
+            )
+        return request
+
     def _next_message_sequence(self, task_id: str) -> int:
         latest_sequence = self._db.scalar(
             select(func.max(Message.sequence)).where(Message.task_id == task_id)
@@ -784,6 +1044,19 @@ class PersistenceService:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _require_aware_datetime(value: datetime, field_name: str) -> None:
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise PersistenceValidationError(
+            f"{field_name} must be a timezone-aware datetime"
+        )
+
+
+def _datetime_at_or_after(left: datetime, right: datetime) -> bool:
+    if right.tzinfo is None:
+        right = right.replace(tzinfo=timezone.utc)
+    return left.astimezone(timezone.utc) >= right.astimezone(timezone.utc)
 
 
 def _require_non_blank(value: str, field_name: str) -> None:

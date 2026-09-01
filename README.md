@@ -1,6 +1,6 @@
 # Coding Agent
 
-这是一个自行实现 Agent Loop、上下文管理、本地文件工具、受策略限制的命令执行、运行策略和多轮 Web UI 的编程智能体原型。
+这是一个自行实现 Agent Loop、上下文管理、本地文件工具、受策略限制的命令执行、危险命令逐次批准、运行策略和多轮 Web UI 的编程智能体原型。
 
 ## 运行环境
 
@@ -27,6 +27,7 @@ DATABASE_URL=postgresql+psycopg://username:password@localhost:5432/database_name
 DEEPSEEK_API_KEY=your-api-key
 ALLOWED_WORKSPACE_ROOT=/absolute/path/to/allowed/workspaces
 WEB_CORS_ALLOWED_ORIGINS=["http://localhost:5173"]
+COMMAND_APPROVAL_TIMEOUT_SECONDS=300
 ```
 
 本项目是原型，不使用 Alembic。Schema 变化后通过以下命令重建：
@@ -36,7 +37,7 @@ cd backend
 .venv/bin/python -m app.db.init_db
 ```
 
-警告：该命令会删除当前数据库中的全部 Session、Task、Step、Message 和 ToolCall，然后重新建表。只应对原型或演示数据库执行。
+警告：该命令会删除当前数据库中的全部 Session、Task、Step、Message、ToolCall 和命令批准记录，然后重新建表。只应对原型或演示数据库执行。
 
 ## 2. 启动后端
 
@@ -94,6 +95,8 @@ npm run build
 - `cwd` 被限制在 Task Workspace 内，不代表进程只能访问 Workspace。
 - 被执行的 Python 代码、测试和构建脚本仍拥有当前操作系统用户的本地权限。
 - 命令仍可能访问网络、启动其他进程或通过绝对路径访问外部文件。
+- 自动允许命令直接执行；可批准命令会先在右侧执行检查器展示精确 argv、工作目录和风险；永久拒绝命令不能通过批准执行。
+- 批准只对当前 Task/ToolCall 和展示指纹生效一次，执行前仍会重新校验；拒绝、过期或篡改不会创建子进程。
 - 不应把不可信仓库直接交给当前原型执行。
 
 真正隔离需要容器或操作系统级文件系统、网络、进程和资源限制。

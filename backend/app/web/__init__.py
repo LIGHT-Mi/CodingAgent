@@ -2,9 +2,11 @@
 
 from app.web.contracts import (
     API_SESSIONS_PATH,
+    API_COMMAND_APPROVAL_DECISION_PATH,
     API_SESSION_PATH,
     API_SESSION_TASKS_PATH,
     API_TASK_CANCEL_PATH,
+    API_TASK_COMMAND_APPROVALS_PATH,
     API_TASK_MESSAGES_PATH,
     API_TASK_STEPS_PATH,
     API_TASK_TOOL_CALLS_PATH,
@@ -12,6 +14,8 @@ from app.web.contracts import (
     API_TASK_SNAPSHOT_PATH,
     AgentStepResponse,
     CancelTaskResponse,
+    CommandApprovalDecisionRequest,
+    CommandApprovalResponse,
     CreateSessionRequest,
     CreateSessionResponse,
     CreateSessionTaskRequest,
@@ -27,9 +31,11 @@ from app.web.query_service import ConversationQueryService, TaskQueryService
 
 __all__ = [
     "API_SESSIONS_PATH",
+    "API_COMMAND_APPROVAL_DECISION_PATH",
     "API_SESSION_PATH",
     "API_SESSION_TASKS_PATH",
     "API_TASK_CANCEL_PATH",
+    "API_TASK_COMMAND_APPROVALS_PATH",
     "API_TASK_MESSAGES_PATH",
     "API_TASK_STEPS_PATH",
     "API_TASK_TOOL_CALLS_PATH",
@@ -37,6 +43,8 @@ __all__ = [
     "API_TASK_SNAPSHOT_PATH",
     "AgentStepResponse",
     "CancelTaskResponse",
+    "CommandApprovalDecisionRequest",
+    "CommandApprovalResponse",
     "CreateSessionRequest",
     "CreateSessionResponse",
     "CreateSessionTaskRequest",

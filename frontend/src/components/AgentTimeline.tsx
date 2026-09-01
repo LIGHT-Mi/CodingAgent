@@ -1,5 +1,6 @@
 import type {
   AgentStep,
+  CommandApproval,
   Message,
   ToolCall,
 } from "../api/contracts";
@@ -9,12 +10,16 @@ interface AgentTimelineProps {
   readonly steps: AgentStep[];
   readonly messages: Message[];
   readonly toolCalls: ToolCall[];
+  readonly commandApprovals: CommandApproval[];
+  readonly onApprovalDecisionRecorded: () => void;
 }
 
 export function AgentTimeline({
   steps,
   messages,
   toolCalls,
+  commandApprovals,
+  onApprovalDecisionRecorded,
 }: AgentTimelineProps) {
   return (
     <section className="agent-timeline" aria-labelledby="timeline-title">
@@ -37,6 +42,10 @@ export function AgentTimeline({
               toolCalls={toolCalls.filter(
                 (toolCall) => toolCall.step_id === step.id,
               )}
+              commandApprovals={commandApprovals.filter(
+                (approval) => approval.step_id === step.id,
+              )}
+              onApprovalDecisionRecorded={onApprovalDecisionRecorded}
             />
           ))}
         </div>

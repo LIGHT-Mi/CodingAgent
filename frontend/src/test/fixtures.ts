@@ -45,5 +45,6 @@ export function makeSnapshot(task: Task): TaskSnapshot {
     steps: [],
     messages: [],
     tool_calls: [],
+    command_approvals: [],
   };
 }

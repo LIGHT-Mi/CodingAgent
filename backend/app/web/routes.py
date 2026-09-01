@@ -7,6 +7,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from app.approval.service import (
+    CommandApprovalFingerprintMismatchError,
+    CommandApprovalNotActiveError,
+    CommandApprovalNotFoundError,
+)
 from app.api.conversation_service import (
     ConversationService,
     ConversationTaskSubmissionError,
@@ -21,9 +26,11 @@ from app.db.persistence import (
 )
 from app.web.contracts import (
     API_SESSIONS_PATH,
+    API_COMMAND_APPROVAL_DECISION_PATH,
     API_SESSION_PATH,
     API_SESSION_TASKS_PATH,
     API_TASK_CANCEL_PATH,
+    API_TASK_COMMAND_APPROVALS_PATH,
     API_TASK_MESSAGES_PATH,
     API_TASK_PATH,
     API_TASK_SNAPSHOT_PATH,
@@ -31,6 +38,8 @@ from app.web.contracts import (
     API_TASK_TOOL_CALLS_PATH,
     AgentStepResponse,
     CancelTaskResponse,
+    CommandApprovalDecisionRequest,
+    CommandApprovalResponse,
     CreateSessionRequest,
     CreateSessionResponse,
     CreateSessionTaskRequest,
@@ -209,6 +218,57 @@ def get_task_tool_calls(
     persistence: PersistenceDependency,
 ) -> list[ToolCallResponse]:
     return TaskQueryService(persistence).get_tool_calls(task_id)
+
+
+@router.get(
+    API_TASK_COMMAND_APPROVALS_PATH,
+    response_model=list[CommandApprovalResponse],
+)
+def get_task_command_approvals(
+    task_id: str,
+    persistence: PersistenceDependency,
+) -> list[CommandApprovalResponse]:
+    return TaskQueryService(persistence).get_command_approvals(task_id)
+
+
+@router.post(
+    API_COMMAND_APPROVAL_DECISION_PATH,
+    response_model=CommandApprovalResponse,
+)
+def decide_command_approval(
+    task_id: str,
+    approval_id: str,
+    payload: CommandApprovalDecisionRequest,
+    request: Request,
+    persistence: PersistenceDependency,
+) -> CommandApprovalResponse:
+    service = request.app.state.application_factory.create_command_approval_service(
+        persistence
+    )
+    try:
+        approval = service.decide(
+            task_id=task_id,
+            request_id=approval_id,
+            decision=payload.decision,
+            command_fingerprint=payload.command_fingerprint,
+        )
+    except CommandApprovalNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Command approval request was not found",
+        ) from exc
+    except CommandApprovalFingerprintMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Command approval fingerprint does not match",
+        ) from exc
+    except CommandApprovalNotActiveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Command approval request is no longer active",
+        ) from exc
+    approvals = TaskQueryService(persistence).get_command_approvals(task_id)
+    return next(item for item in approvals if item.id == approval.id)
 
 
 @router.post(API_TASK_CANCEL_PATH, response_model=CancelTaskResponse)

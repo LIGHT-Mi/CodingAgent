@@ -18,6 +18,7 @@ interface ChatWorkspaceProps {
   readonly navigationLoading: boolean;
   readonly leftSidebarCollapsed: boolean;
   readonly rightInspectorCollapsed: boolean;
+  readonly pendingApprovalCount: number;
   readonly onToggleLeftSidebar: () => void;
   readonly onToggleRightInspector: () => void;
   readonly onTaskSelected: (taskId: string) => void;
@@ -42,6 +43,7 @@ export function ChatWorkspace({
   navigationLoading,
   leftSidebarCollapsed,
   rightInspectorCollapsed,
+  pendingApprovalCount,
   onToggleLeftSidebar,
   onToggleRightInspector,
   onTaskSelected,
@@ -63,6 +65,7 @@ export function ChatWorkspace({
         task={latestTask}
         leftSidebarCollapsed={leftSidebarCollapsed}
         rightInspectorCollapsed={rightInspectorCollapsed}
+        pendingApprovalCount={pendingApprovalCount}
         onToggleLeftSidebar={onToggleLeftSidebar}
         onToggleRightInspector={onToggleRightInspector}
       />
