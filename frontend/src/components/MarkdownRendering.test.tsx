@@ -83,7 +83,9 @@ describe("Markdown rendering", () => {
     const { container } = render(<UserTurn content="你好" />);
     const body = container.querySelector(".user-message .message-body");
 
+    expect(container.querySelector(".message-avatar")).toHaveTextContent("Y");
     expect(body?.children[0]).toHaveClass("user-message-heading");
+    expect(body?.children[0]).toHaveTextContent("你");
     expect(body?.children[1]?.tagName).toBe("P");
   });
 });

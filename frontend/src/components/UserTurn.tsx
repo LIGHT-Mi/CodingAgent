@@ -6,7 +6,7 @@ export function UserTurn({ content }: UserTurnProps) {
   return (
     <div className="chat-message user-message">
       <div className="message-avatar" aria-hidden="true">
-        你
+        Y
       </div>
       <div className="message-body">
         <div className="user-message-heading">
